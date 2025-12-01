@@ -42,7 +42,7 @@ export class InventoryService {
       });
     } else if (user.role === UserRole.BRANCH) {
       query = query.andWhere('purchase.createdBy = :userId', {
-         userId: user.id,
+        userId: user.id,
       });
     }
 
@@ -51,21 +51,22 @@ export class InventoryService {
     const inventoryMap = new Map();
 
     rows.forEach((r) => {
-
       const productName = r.purchase_productName;
       const branchId = r.purchase_branchId;
+      const brand = r.purchase_brand;
 
-      const key = `${productName}-${branchId}`;
+      // Group uniquely by product + brand + branch
+      const key = `${productName}-${brand}-${branchId}`;
 
       if (!inventoryMap.has(key)) {
         inventoryMap.set(key, {
           id: r.purchase_id,
-          productName: r.purchase_productName,
+          productName: productName,
+          brand: brand,
           currentQuantity: 0,
           unit: r.purchase_unit,
           lowStockThreshold: r.purchase_lowStockThreshold,
-          brand: r.purchase_brand,
-          branchId: r.purchase_branchId,
+          branchId: branchId,
           branch: {
             id: r.branch_id,
             name: r.branch_name,
@@ -84,6 +85,7 @@ export class InventoryService {
         item.lastPurchaseDate = r.purchase_createdAt;
       }
     });
+
 
     return Array.from(inventoryMap.values());
   }

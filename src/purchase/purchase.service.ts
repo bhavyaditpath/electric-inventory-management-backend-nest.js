@@ -48,7 +48,8 @@ export class PurchaseService {
       .createQueryBuilder('purchase')
       .leftJoinAndSelect('purchase.user', 'user')
       .leftJoinAndSelect('purchase.branch', 'branch')
-      .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
+      .where('purchase.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('purchase.createdAt >= NOW() - INTERVAL \'3 days\''); 
 
     if (userId) {
       const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -70,7 +71,6 @@ export class PurchaseService {
   async findOne(id: number) {
     const purchase = await this.purchaseRepository.findOne({
       where: { id, isRemoved: false },
-      relations: ['user', 'branch'],
     });
 
     if (!purchase) {

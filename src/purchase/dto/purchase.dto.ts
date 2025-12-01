@@ -1,4 +1,5 @@
 import { IsString, IsNumber, IsOptional, IsPositive, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreatePurchaseDto {
   @IsString()
@@ -6,6 +7,7 @@ export class CreatePurchaseDto {
 
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   quantity: number;
 
   @IsString()
@@ -13,14 +15,17 @@ export class CreatePurchaseDto {
 
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   pricePerUnit: number;
 
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   totalPrice: number;
 
   @IsNumber()
   @Min(0)
+  @Transform(({ value }) => parseFloat(value))
   lowStockThreshold: number;
 
   @IsString()
@@ -28,6 +33,7 @@ export class CreatePurchaseDto {
 
   @IsOptional()
   @IsNumber()
+  @Transform(({ value }) => parseFloat(value))
   branchId?: number;
 }
 
@@ -39,6 +45,7 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   quantity?: number;
 
   @IsOptional()
@@ -48,16 +55,19 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   pricePerUnit?: number;
 
   @IsOptional()
   @IsNumber()
   @IsPositive()
+  @Transform(({ value }) => parseFloat(value))
   totalPrice?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Transform(({ value }) => parseFloat(value))
   lowStockThreshold?: number;
 
   @IsOptional()
@@ -66,6 +76,7 @@ export class UpdatePurchaseDto {
 
   @IsOptional()
   @IsNumber()
+  @Transform(({ value }) => parseFloat(value))
   branchId?: number;
 }
 

@@ -5,6 +5,7 @@ import { Purchase } from './entities/purchase.entity';
 import { CreatePurchaseDto, UpdatePurchaseDto } from './dto/purchase.dto';
 import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
+import { AlertService } from '../alert/alert.service';
 
 @Injectable()
 export class PurchaseService {
@@ -13,6 +14,7 @@ export class PurchaseService {
     private purchaseRepository: Repository<Purchase>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private alertService: AlertService,
   ) {}
 
   async findDuplicate(productName: string, userId: number) {
@@ -40,7 +42,14 @@ export class PurchaseService {
       createdBy: userId,
     });
 
-    return this.purchaseRepository.save(purchase);
+    const savedPurchase = await this.purchaseRepository.save(purchase);
+
+    // Generate alerts for the branch after purchase is saved
+    if (user.branchId) {
+      await this.alertService.generateAlertsForBranch(user.branchId);
+    }
+
+    return savedPurchase;
   }
 
   async findAll(userId?: number) {
@@ -83,7 +92,13 @@ export class PurchaseService {
   async update(id: number, updatePurchaseDto: UpdatePurchaseDto) {
     const purchase = await this.findOne(id);
     Object.assign(purchase, updatePurchaseDto);
-    return this.purchaseRepository.save(purchase);
+    const updatedPurchase = await this.purchaseRepository.save(purchase);
+
+    if (purchase.branchId) {
+      await this.alertService.generateAlertsForBranch(purchase.branchId);
+    }
+
+    return updatedPurchase;
   }
 
   async remove(id: number) {

@@ -15,7 +15,7 @@ export class AlertService {
   constructor(
     @InjectRepository(StockAlert)
     private alertRepository: Repository<StockAlert>,
-  ) {}
+  ) { }
 
   async create(createAlertDto: CreateAlertDto): Promise<StockAlert> {
     // Calculate priority if not provided
@@ -35,8 +35,8 @@ export class AlertService {
   ): Promise<{ data: StockAlert[]; total: number; page: number; limit: number }> {
     const query = this.alertRepository
       .createQueryBuilder('alert')
-      .where('alert.branchId = :branchId', { branchId })
-      .andWhere('alert.isRemoved = :isRemoved', { isRemoved: false });
+      .where('alert."branchId" = :branchId', { branchId })
+      .andWhere('(alert.isRemoved = false OR alert.isRemoved IS NULL)');
 
     if (status) {
       query.andWhere('alert.status = :status', { status });
@@ -137,11 +137,11 @@ export class AlertService {
     const inventoryQuery = this.alertRepository.manager
       .createQueryBuilder()
       .select([
-        'p.productName',
-        'p.brand',
-        'SUM(p.quantity) as currentQuantity',
-        'p.lowStockThreshold',
-        'p.branchId',
+        'p.productName AS productName',
+        'p.brand AS brand',
+        'SUM(p.quantity) AS currentStock',
+        'p.lowStockThreshold AS minStock',
+        'p.branchId AS branchId',
       ])
       .from('purchases', 'p')
       .where('p.isRemoved = :isRemoved', { isRemoved: false })
@@ -151,8 +151,8 @@ export class AlertService {
     const inventoryData = await inventoryQuery.getRawMany();
 
     for (const item of inventoryData) {
-      const currentStock = Number(item.currentQuantity);
-      const minStock = item.lowStockThreshold;
+      const currentStock = Number(item.currentstock);
+      const minStock = item.minstock;
 
       if (currentStock <= minStock) {
         const shortage = minStock - currentStock;
@@ -160,7 +160,7 @@ export class AlertService {
 
         // Check if alert already exists
         const existingAlert = await this.findExistingAlert(
-          item.productName,
+          item.productname,
           item.brand,
           branchId,
           alertType,
@@ -175,7 +175,7 @@ export class AlertService {
         } else {
           // Create new alert
           await this.create({
-            itemName: `${item.productName} (${item.brand})`,
+            itemName: `${item.productname} (${item.brand})`,
             currentStock,
             minStock,
             shortage,
@@ -186,7 +186,7 @@ export class AlertService {
       } else {
         // If stock is now above threshold, resolve any existing alerts
         const existingAlert = await this.findExistingAlert(
-          item.productName,
+          item.productname,
           item.brand,
           branchId,
           AlertType.LOW_STOCK,
@@ -198,7 +198,7 @@ export class AlertService {
         }
 
         const existingOutOfStockAlert = await this.findExistingAlert(
-          item.productName,
+          item.productname,
           item.brand,
           branchId,
           AlertType.OUT_OF_STOCK,

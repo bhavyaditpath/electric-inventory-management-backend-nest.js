@@ -1,8 +1,9 @@
-import { Entity, Column } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { BaseEntityClass } from '../../shared/base.entity';
 import { AlertPriority } from '../../shared/enums/alert-priority.enum';
 import { AlertType } from '../../shared/enums/alert-type.enum';
 import { AlertStatus } from '../../shared/enums/alert-status.enum';
+import { Branch } from '../../branch/entities/branch.entity';
 
 @Entity('alerts')
 export class StockAlert extends BaseEntityClass {
@@ -43,6 +44,10 @@ export class StockAlert extends BaseEntityClass {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  @ManyToOne(() => Branch)
+  @JoinColumn({ name: 'branchId' })
+  branch: Branch;
 
   @Column({ type: 'int' })
   branchId: number;

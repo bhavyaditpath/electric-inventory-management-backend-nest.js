@@ -93,7 +93,7 @@ export class PurchaseService {
     const purchase = await this.findOne(id);
     Object.assign(purchase, updatePurchaseDto);
     const updatedPurchase = await this.purchaseRepository.save(purchase);
-
+    console.log(purchase.branchId)
     if (purchase.branchId) {
       await this.alertService.generateAlertsForBranch(purchase.branchId);
     }

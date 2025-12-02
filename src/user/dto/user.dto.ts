@@ -9,7 +9,7 @@ export class UserDto {
   @IsOptional()
   password?: string;
 
-  @IsEnum(UserRole, { message: 'Role must be either ADMIN or BRANCH' })
+  @IsEnum(UserRole, { message: 'Role must be either Admin or Branch' })
   @IsNotEmpty({ message: 'Role is required' })
   role: UserRole;
 

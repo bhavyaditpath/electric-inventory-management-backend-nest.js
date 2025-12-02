@@ -11,6 +11,7 @@ import { Branch } from './branch/entities/branch.entity';
 import { SeederService } from './seeder/seeder.service';
 import { SeederModule } from './seeder/seeder.module';
 import { AlertModule } from './alert/alert.module';
+import { RequestModule } from './request/request.module';
 import dbConfig from './config/database.config';
 
 @Module({
@@ -27,6 +28,7 @@ import dbConfig from './config/database.config';
     InventoryModule,
     SeederModule,
     AlertModule,
+    RequestModule,
   ],
   controllers: [],
   providers: [SeederService],

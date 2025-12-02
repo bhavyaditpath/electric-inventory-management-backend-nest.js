@@ -1,98 +1,270 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Electric Inventory Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A robust backend application for managing electric inventory systems, built with NestJS and TypeORM. This project provides a scalable API for handling users, branches, purchases, inventory, and alerts with JWT-based authentication.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Technologies Used
 
-## Description
+- **NestJS**: A progressive Node.js framework for building efficient and scalable server-side applications.
+- **TypeORM**: An ORM that can run in Node.js and be used with TypeScript and JavaScript.
+- **PostgreSQL**: The database used for data persistence.
+- **JWT (JSON Web Tokens)**: For secure authentication.
+- **bcrypt**: For password hashing.
+- **class-validator & class-transformer**: For input validation and transformation.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Why NestJS?
 
-## Project setup
+NestJS was chosen for this project because:
 
-```bash
-$ npm install
+- It provides a modular architecture with dependency injection, making the code more maintainable and testable.
+- Built-in support for TypeScript, which helps catch errors at compile time.
+- Excellent documentation and a large community.
+- Supports various transport layers (HTTP, WebSockets, etc.) out of the box.
+- Easy integration with other libraries like TypeORM and Passport for authentication.
+
+## Why TypeORM?
+
+TypeORM is used as the ORM for the following reasons:
+
+- Full TypeScript support with decorators for entities, repositories, etc.
+- Supports multiple databases (PostgreSQL, MySQL, SQLite, etc.), making it flexible.
+- Built-in migration system for database schema changes.
+- Active Record and Data Mapper patterns available.
+- Query builder and raw SQL support when needed.
+- Automatic synchronization (though disabled in production for safety).
+
+## Database Connection
+
+The application connects to a PostgreSQL database using environment variables. The connection is configured in `src/config/typeorm.config.ts`:
+
+```typescript
+export const AppDataSource = new DataSource({
+  type: 'postgres',
+  host: process.env.DB_HOST,
+  port: parseInt(process.env.DB_PORT ?? '5432'),
+  username: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  synchronize: false, // Disabled for production safety
+  // synchronize: When true, TypeORM will automatically create/update database schema based on entities.
+  // Set to false in production and use migrations instead to avoid data loss.
+  logging: true,
+  entities: ['src/**/*.entity.ts'],
+  migrations: ['src/database/migrations/*.ts'],
+});
 ```
 
-## Compile and run the project
+To connect, create a `.env` file in the root directory with the following variables:
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=your_username
+DB_PASS=your_password
+DB_NAME=electric_inventory
+PORT=3000
 ```
 
-## Run tests
+## Difficulties Faced
 
+During development, several challenges were encountered:
+
+1. **TypeORM Migration Setup**: Initially, setting up migrations with TypeORM CLI was tricky. The path configurations and ensuring the CLI uses the correct config file required careful setup.
+
+2. **Entity Relationships**: Defining complex relationships between entities (e.g., User-Branch, Purchase-Inventory) required understanding TypeORM's decorators and cascade options to avoid data integrity issues.
+
+3. **JWT Authentication**: Implementing role-based access control with Passport and JWT involved configuring guards and strategies properly to secure endpoints.
+
+4. **Database Synchronization**: Deciding between `synchronize: true` for development and migrations for production. Synchronize can drop data unexpectedly, so migrations were adopted for safer schema changes.
+
+5. **Seeding Data**: Creating a seeder service to populate initial data (like admin user) required handling async operations and ensuring it runs only once.
+
+6. **Validation and Transformation**: Using class-validator and class-transformer for DTOs helped, but ensuring all edge cases are covered took iterations.
+
+7. **CORS and Global Pipes**: Enabling CORS for frontend integration and setting up global validation pipes were straightforward but crucial for API usability.
+
+## How to Add Migrations
+
+Migrations are used to manage database schema changes safely. To add a new migration:
+
+1. Make changes to your entities (e.g., add a new column to an entity).
+
+2. Generate a migration file:
+   ```bash
+   npm run migration:generate -- src/database/migrations/YourMigrationName
+   ```
+   This will create a new migration file in `src/database/migrations/` with the `up` and `down` methods.
+
+3. Review the generated migration to ensure it reflects the intended changes.
+
+4. Run the migration to apply it to the database:
+   ```bash
+   npm run migration:run
+   ```
+
+5. If you need to revert the last migration:
+   ```bash
+   npm run migration:revert
+   ```
+
+Example migration structure:
+```typescript
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class YourMigrationName implements MigrationInterface {
+    name = 'YourMigrationName'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        // SQL to apply changes
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        // SQL to revert changes
+    }
+}
+```
+
+## Project Structure
+
+```
+src/                # Source TypeScript files
+├── alert/          # Alert management module
+├── auth/           # Authentication module (JWT, Passport)
+├── branch/         # Branch management
+├── config/         # Configuration files (database, JWT, etc.)
+├── database/
+│   ├── migrations/ # Database migrations
+│   └── seeders/    # Database seeders
+├── inventory/      # Inventory management
+├── purchase/       # Purchase management
+├── seeder/         # Data seeding service
+├── shared/         # Shared utilities, enums, base entities
+├── user/           # User management
+├── utils/          # Utility functions
+├── app.controller.ts
+├── app.module.ts
+├── app.service.ts
+└── main.ts
+
+dist/               # Compiled JavaScript files (generated by npm run build)
+├── ...             # Mirror structure of src/ but in .js format
+└── main.js         # Entry point for production
+```
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd electric-inventry-backend
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up environment variables by creating a `.env` file (see Database Connection section).
+
+4. Ensure PostgreSQL is running and the database exists.
+
+## Development Commands
+
+NestJS provides a CLI for generating components:
+
+- Create a new module:
+  ```bash
+  npx nest generate module module-name
+  ```
+
+- Create a new controller:
+  ```bash
+  npx nest generate controller controller-name
+  ```
+
+- Create a new service:
+  ```bash
+  npx nest generate service service-name
+  ```
+
+- Create a full resource (module, controller, service, DTOs):
+  ```bash
+  npx nest generate resource resource-name
+  ```
+
+## Running the Application
+
+### Development
 ```bash
-# unit tests
-$ npm run test
+npm run start:dev
+```
 
-# e2e tests
-$ npm run test:e2e
+### Production
+```bash
+npm run build
+npm run start:prod
+```
 
-# test coverage
-$ npm run test:cov
+### Debugging
+
+To debug the application in VSCode:
+
+1. The project includes a `.vscode/launch.json` file with a debug configuration for NestJS.
+2. Start the application in debug mode:
+   ```bash
+   npm run start:debug
+   ```
+3. In VSCode, go to the Run and Debug panel (Ctrl+Shift+D), select "Debug NestJS" from the dropdown, and click the play button to attach the debugger.
+4. The debugger will attach to the running process on port 9229, allowing you to set breakpoints and inspect variables.
+
+## API Endpoints
+
+The API provides endpoints for:
+
+- **Authentication**: Login, register
+- **Users**: CRUD operations with role-based access
+- **Branches**: Manage branches
+- **Purchases**: Handle purchase transactions
+- **Inventory**: Track inventory levels
+- **Alerts**: Manage system alerts
+
+Base URL: `http://localhost:3000` (or your configured PORT)
+
+Detailed API documentation can be generated using Swagger or similar tools.
+
+## Testing
+
+Run unit tests:
+```bash
+npm run test
+```
+
+Run e2e tests:
+```bash
+npm run test:e2e
+```
+
+Check test coverage:
+```bash
+npm run test:cov
 ```
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+For production deployment:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+1. Ensure `synchronize: false` in TypeORM config.
+2. Run migrations on the production database.
+3. Set environment variables securely.
+4. Use a process manager like PM2 for Node.js apps.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+## Contributing
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Add tests if applicable.
+5. Submit a pull request.
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is licensed under the UNLICENSED license.

@@ -43,27 +43,27 @@ export class SeederService {
     // SEED USERS
     const users = [
       // Admins - all in Head Office
-      { username: 'admin1', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin2', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin3', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin4', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin5', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin6', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin7', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin8', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin9', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
-      { username: 'admin10', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin1@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin2@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin3@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin4@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin5@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin6@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin7@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin8@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin9@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
+      { username: 'admin10@yopmail.com', password: 'admin', role: UserRole.ADMIN, branchName: 'Head Office' },
       // Branch users - each in their own branch
-      { username: 'branch1', password: 'branch', role: UserRole.BRANCH, branchName: 'Main Branch' },
-      { username: 'branch2', password: 'branch', role: UserRole.BRANCH, branchName: 'Downtown Branch' },
-      { username: 'branch3', password: 'branch', role: UserRole.BRANCH, branchName: 'East Branch' },
-      { username: 'branch4', password: 'branch', role: UserRole.BRANCH, branchName: 'West Branch' },
-      { username: 'branch5', password: 'branch', role: UserRole.BRANCH, branchName: 'North Branch' },
-      { username: 'branch6', password: 'branch', role: UserRole.BRANCH, branchName: 'South Branch' },
-      { username: 'branch7', password: 'branch', role: UserRole.BRANCH, branchName: 'Central Branch' },
-      { username: 'branch8', password: 'branch', role: UserRole.BRANCH, branchName: 'Industrial Branch' },
-      { username: 'branch9', password: 'branch', role: UserRole.BRANCH, branchName: 'Residential Branch' },
-      { username: 'branch10', password: 'branch', role: UserRole.BRANCH, branchName: 'Commercial Branch' },
+      { username: 'branch1@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Main Branch' },
+      { username: 'branch2@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Downtown Branch' },
+      { username: 'branch3@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'East Branch' },
+      { username: 'branch4@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'West Branch' },
+      { username: 'branch5@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'North Branch' },
+      { username: 'branch6@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'South Branch' },
+      { username: 'branch7@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Central Branch' },
+      { username: 'branch8@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Industrial Branch' },
+      { username: 'branch9@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Residential Branch' },
+      { username: 'branch10@yopmail.com', password: 'branch', role: UserRole.BRANCH, branchName: 'Commercial Branch' },
     ];
 
     for (const u of users) {
@@ -75,11 +75,11 @@ export class SeederService {
     }
 
     // SEED PURCHASES (Dummy Data)
-    const admin1 = await this.userService.findByUsername('admin1');
-    const admin2 = await this.userService.findByUsername('admin2');
-    const branch1 = await this.userService.findByUsername('branch1');
-    const branch2 = await this.userService.findByUsername('branch2');
-    const branch3 = await this.userService.findByUsername('branch3');
+    const admin1 = await this.userService.findByUsername('admin1@yopmail.com');
+    const admin2 = await this.userService.findByUsername('admin2@yopmail.com');
+    const branch1 = await this.userService.findByUsername('branch1@yopmail.com');
+    const branch2 = await this.userService.findByUsername('branch2@yopmail.com');
+    const branch3 = await this.userService.findByUsername('branch3@yopmail.com');
 
     const samplePurchases = [
       { productName: 'Switch Box', quantity: 10, unit: 'pcs', pricePerUnit: 20, totalPrice: 200, lowStockThreshold: 5, brand: 'Havells', userId: admin1?.id },

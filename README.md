@@ -1,6 +1,6 @@
 # Electric Inventory Backend
 
-A robust backend application for managing electric inventory systems, built with NestJS and TypeORM. This project provides a scalable API for handling users, branches, purchases, inventory, and alerts with JWT-based authentication.
+A robust backend application for managing electric inventory systems, built with NestJS and TypeORM. This project provides a scalable API for handling users, branches, purchases, inventory, and alerts with JWT-based authentication and OAuth integration.
 
 ## Technologies Used
 
@@ -8,6 +8,7 @@ A robust backend application for managing electric inventory systems, built with
 - **TypeORM**: An ORM that can run in Node.js and be used with TypeScript and JavaScript.
 - **PostgreSQL**: The database used for data persistence.
 - **JWT (JSON Web Tokens)**: For secure authentication.
+- **OAuth (Google)**: For social login authentication.
 - **bcrypt**: For password hashing.
 - **class-validator & class-transformer**: For input validation and transformation.
 - **Nodemailer**: For sending emails (used in forgot password functionality).
@@ -201,6 +202,100 @@ For production, replace Mailtrap with a real SMTP service like:
 - **AWS SES**: Amazon's email service
 
 Update the `.env` variables accordingly.
+
+## OAuth (Google) Implementation
+
+The application supports Google OAuth 2.0 for social login, allowing users to authenticate using their Google accounts. This integrates seamlessly with the existing JWT-based authentication system.
+
+### Packages Used
+
+- **@nestjs/passport**: NestJS wrapper for Passport.js authentication middleware.
+- **passport**: General-purpose authentication middleware for Node.js.
+- **passport-google-oauth20**: Passport strategy for authenticating with Google using OAuth 2.0.
+- **@nestjs/jwt**: For generating JWT tokens after successful OAuth authentication.
+
+Install them using:
+```bash
+npm install @nestjs/passport passport passport-google-oauth20 @nestjs/jwt
+npm install --save-dev @types/passport-jwt
+```
+
+### How to Set Up Google OAuth
+
+1. **Create a Google Cloud Project**: Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project or select an existing one.
+
+2. **Enable Google+ API**: In the API Library, enable the "Google+ API" (required for profile information).
+
+3. **Create OAuth 2.0 Credentials**:
+   - Go to "Credentials" in the left sidebar.
+   - Click "Create Credentials" > "OAuth 2.0 Client IDs".
+   - Choose "Web application" as the application type.
+   - Add authorized redirect URIs: `http://localhost:3002/auth/google/callback` (for development).
+
+4. **Get Client Credentials**: Note down the Client ID and Client Secret.
+
+5. **Configure Environment Variables**: Update your `.env` file:
+   ```
+   GOOGLE_CLIENT_ID=your_google_client_id
+   GOOGLE_CLIENT_SECRET=your_google_client_secret
+   GOOGLE_CALLBACK_URL=http://localhost:3002/auth/google/callback
+   FRONTEND_URL=http://localhost:3000
+   DEFAULT_BRANCH_ID=1
+   ```
+
+6. **Frontend Integration**: Ensure your frontend has a route to handle the callback and extract tokens from the URL parameters.
+
+### How It Works
+
+1. **Initiate OAuth Flow**:
+   - User clicks "Login with Google" on the frontend.
+   - Frontend redirects to `GET /auth/google`.
+   - Server redirects user to Google's OAuth consent screen.
+
+2. **Google Authentication**:
+   - User grants permission for email and profile access.
+   - Google redirects back to `/auth/google/callback` with an authorization code.
+
+3. **Token Exchange and User Creation**:
+   - Server exchanges the code for access/refresh tokens from Google.
+   - Extracts user profile information (email, name, picture).
+   - Finds existing user by `googleId` or creates a new user account.
+   - If email exists but no `googleId`, links the Google account to the existing user.
+   - Generates JWT access and refresh tokens.
+
+4. **Redirect to Frontend**:
+   - Redirects user to frontend callback URL with tokens as query parameters.
+   - Frontend stores tokens and logs the user in.
+
+### API Endpoints
+
+- **GET /auth/google**
+  - Initiates the Google OAuth flow.
+  - Redirects user to Google's consent screen.
+
+- **GET /auth/google/callback**
+  - Handles the OAuth callback from Google.
+  - Processes user authentication and redirects to frontend with tokens.
+
+### Security Features
+
+- **OAuth 2.0 Security**: Uses Google's secure OAuth 2.0 protocol for authentication.
+- **Email Verification**: Google-verified email addresses are automatically marked as verified.
+- **Account Linking**: Existing users can link their Google accounts without creating duplicates.
+- **JWT Integration**: Seamless integration with existing JWT-based session management.
+- **Scope Limitation**: Only requests necessary permissions (email and profile).
+- **Secure Redirects**: Uses environment-configured URLs to prevent open redirect vulnerabilities.
+
+### User Entity Updates
+
+The User entity has been updated to include OAuth fields:
+
+- `googleId`: Unique Google user ID
+- `firstName`, `lastName`: User's name from Google profile
+- `profilePicture`: Profile picture URL from Google
+- `isEmailVerified`: Automatically set to true for OAuth users
+
+This implementation provides a smooth social login experience while maintaining security and integrating with the existing authentication system.
 
 ## How to Add Migrations
 

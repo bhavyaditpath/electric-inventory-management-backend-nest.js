@@ -10,6 +10,7 @@ A robust backend application for managing electric inventory systems, built with
 - **JWT (JSON Web Tokens)**: For secure authentication.
 - **bcrypt**: For password hashing.
 - **class-validator & class-transformer**: For input validation and transformation.
+- **Nodemailer**: For sending emails (used in forgot password functionality).
 
 ## Why NestJS?
 
@@ -81,6 +82,89 @@ During development, several challenges were encountered:
 6. **Validation and Transformation**: Using class-validator and class-transformer for DTOs helped, but ensuring all edge cases are covered took iterations.
 
 7. **CORS and Global Pipes**: Enabling CORS for frontend integration and setting up global validation pipes were straightforward but crucial for API usability.
+
+8. **Forgot Password Implementation**: Setting up email functionality required configuring SMTP services, handling authentication errors, and ensuring secure token generation. Integrating Nodemailer with environment-based configuration and creating a reusable EmailService added complexity to the auth module.
+
+## Forgot Password Implementation
+
+The forgot password functionality allows users to reset their passwords securely via email. This feature uses JWT tokens for reset links and Nodemailer for email delivery.
+
+### Packages Used
+
+- **nodemailer**: A module for Node.js applications to send emails.
+- **@types/nodemailer**: TypeScript type definitions for Nodemailer.
+
+Install them using:
+```bash
+npm install nodemailer @types/nodemailer
+```
+
+### Email Service Used: Mailtrap
+
+For development and testing, we use **Mailtrap** - a fake SMTP service that captures emails instead of sending them to real recipients. This allows safe testing without sending actual emails.
+
+#### How to Set Up Mailtrap
+
+1. **Sign up for Mailtrap**: Go to [mailtrap.io](https://mailtrap.io) and create a free account.
+
+2. **Create an Inbox**: After logging in, create a new inbox for your project.
+
+3. **Get SMTP Credentials**: In your inbox settings, find the SMTP credentials:
+   - Host: `smtp.mailtrap.io`
+   - Port: `2525` (or `465` for SSL)
+   - Username: Your Mailtrap inbox username
+   - Password: Your Mailtrap inbox password
+
+4. **Configure Environment Variables**: Update your `.env` file:
+   ```
+   EMAIL_HOST=smtp.mailtrap.io
+   EMAIL_PORT=2525
+   EMAIL_USER=your_mailtrap_username
+   EMAIL_PASS=your_mailtrap_password
+   EMAIL_FROM=noreply@yourapp.com
+   FRONTEND_URL=http://localhost:3000
+   ```
+
+5. **Test the Setup**: When you trigger forgot password, check your Mailtrap inbox to see the captured email.
+
+### How It Works
+
+1. **Forgot Password Request**:
+   - User sends POST request to `/auth/forgot-password` with their email (username).
+   - System finds the user and generates a JWT reset token (expires in 15 minutes).
+   - Email is sent with a reset link containing the token.
+
+2. **Reset Password**:
+   - User clicks the link and is redirected to frontend reset page.
+   - Frontend sends POST request to `/auth/reset-password` with token and new password.
+   - System validates token, hashes new password, and updates user.
+
+### API Endpoints
+
+- **POST /auth/forgot-password**
+  - Body: `{ "username": "user@example.com" }`
+  - Response: Success message or error if user not found
+
+- **POST /auth/reset-password**
+  - Body: `{ "token": "jwt_token", "newPassword": "newpassword123" }`
+  - Response: Success message or error for invalid/expired token
+
+### Security Features
+
+- Reset tokens expire in 15 minutes
+- Passwords are hashed using bcrypt before saving
+- Tokens are signed with JWT secret
+- Email contains clickable link to frontend reset page
+
+### Switching to Production Email Service
+
+For production, replace Mailtrap with a real SMTP service like:
+
+- **Gmail**: Requires app password and 2FA enabled
+- **SendGrid**: Professional email service
+- **AWS SES**: Amazon's email service
+
+Update the `.env` variables accordingly.
 
 ## How to Add Migrations
 
@@ -220,7 +304,7 @@ To debug the application in VSCode:
 
 The API provides endpoints for:
 
-- **Authentication**: Login, register
+- **Authentication**: Login, register, forgot password, reset password
 - **Users**: CRUD operations with role-based access
 - **Branches**: Manage branches
 - **Purchases**: Handle purchase transactions

@@ -11,6 +11,9 @@ import { JwtService } from '@nestjs/jwt';
 import { LoginResponse } from './types/auth.types';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { EmailService } from './email.service';
+import { ConfigService } from '@nestjs/config';
+import { UserRole } from '../shared/enums/role.enum';
+import type { Response } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -18,7 +21,8 @@ export class AuthService {
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private jwtService: JwtService,
-    private emailService: EmailService
+    private emailService: EmailService,
+    private configService: ConfigService
   ) {}
 
   async register(dto: RegisterDto): Promise<ApiResponse> {
@@ -53,16 +57,9 @@ export class AuthService {
 
     if (!passwordMatch) return ApiResponseUtil.error("Invalid credentials");
 
-    const payload = {
-      sub: user!.id,
-      username: user!.username,
-      role: user!.role,
-      branchId: user.branchId
-    };
+    const tokens = this.generateTokens(user);
 
-    const token = this.jwtService.sign(payload);
-
-    return ApiResponseUtil.success({ access_token: token }, "Login successful");
+    return ApiResponseUtil.success(tokens, "Login successful");
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<ApiResponse> {
@@ -105,6 +102,100 @@ export class AuthService {
       return ApiResponseUtil.success(null, "Password reset successfully");
     } catch (error) {
       return ApiResponseUtil.error("Invalid or expired token");
+    }
+  }
+
+  async googleLogin(req: any, res: Response): Promise<void> {
+    if (!req.user) {
+      res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/login?error=google_auth_failed`);
+      return;
+    }
+
+    const { email, firstName, lastName, picture, googleId } = req.user;
+
+    // Find or create user
+    let user = await this.userRepo.findOne({
+      where: { googleId }
+    });
+
+    if (!user) {
+      // Check if email already exists
+      const existingUser = await this.userRepo.findOne({
+        where: { email }
+      });
+
+      if (existingUser) {
+        // Link Google account to existing user
+        existingUser.googleId = googleId;
+        existingUser.firstName = firstName;
+        existingUser.lastName = lastName;
+        existingUser.profilePicture = picture;
+        existingUser.isEmailVerified = true;
+        user = await this.userRepo.save(existingUser);
+      } else {
+        // Create new user
+        const defaultBranchId = this.configService.get<number>('DEFAULT_BRANCH_ID') || 1;
+        user = this.userRepo.create({
+          username: email, // Use email as username for Google users
+          email,
+          googleId,
+          firstName,
+          lastName,
+          profilePicture: picture,
+          isEmailVerified: true,
+          role: UserRole.BRANCH, // Default role, can be changed later
+          branchId: defaultBranchId
+        });
+        user = await this.userRepo.save(user);
+      }
+    }
+
+    const tokens = this.generateTokens(user);
+
+    // Redirect to frontend with tokens or set in cookies
+    const redirectUrl = `${this.configService.get<string>('FRONTEND_URL')}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`;
+    res.redirect(redirectUrl);
+  }
+
+  private generateTokens(user: User): LoginResponse {
+    const payload = {
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      branchId: user.branchId
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    // For refresh token, use a different secret or longer expiry
+    // For now, use same token as refresh (not ideal, but works)
+    const refreshToken = this.jwtService.sign({ ...payload, type: 'refresh' });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken
+    };
+  }
+
+  async refreshToken(refreshToken: string): Promise<ApiResponse> {
+    try {
+      const payload = this.jwtService.verify(refreshToken) as any;
+      if (payload.type !== 'refresh') {
+        return ApiResponseUtil.error("Invalid refresh token");
+      }
+
+      const user = await this.userRepo.findOne({
+        where: { id: payload.sub }
+      });
+
+      if (!user) {
+        return ApiResponseUtil.error("Invalid refresh token");
+      }
+
+      const tokens = this.generateTokens(user);
+      return ApiResponseUtil.success(tokens, "Token refreshed");
+    } catch (error) {
+      return ApiResponseUtil.error("Invalid or expired refresh token");
     }
   }
 }

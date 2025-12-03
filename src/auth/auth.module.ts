@@ -5,6 +5,7 @@ import { JwtModule, JwtModuleOptions } from "@nestjs/jwt";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./strategies/jwt.strategy";
+import { GoogleStrategy } from "./strategies/google.strategy";
 import { User } from "../user/entities/user.entity";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { EmailService } from "./email.service";
@@ -13,7 +14,7 @@ import { EmailService } from "./email.service";
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([User]),
-    PassportModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
 
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -41,7 +42,7 @@ import { EmailService } from "./email.service";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, EmailService],
+  providers: [AuthService, JwtStrategy, GoogleStrategy, EmailService],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -1,9 +1,11 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Req, Res } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login-auth.dto';
 import { RegisterDto } from './dto/register-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -27,5 +29,22 @@ export class AuthController {
   @Post("reset-password")
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
+  }
+
+  @Post("refresh")
+  async refreshToken(@Body() body: { refresh_token: string }) {
+    return this.authService.refreshToken(body.refresh_token);
+  }
+
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth(@Req() req) {
+    // This route initiates the Google OAuth flow
+  }
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthRedirect(@Req() req, @Res() res: Response) {
+    return this.authService.googleLogin(req, res);
   }
 }

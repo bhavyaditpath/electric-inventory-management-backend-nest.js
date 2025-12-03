@@ -47,7 +47,6 @@ export class InventoryService {
     }
 
     const rows = await query.getRawMany();
-    console.log(rows)
     const inventoryMap = new Map();
 
     rows.forEach((r) => {

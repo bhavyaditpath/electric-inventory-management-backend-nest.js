@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateRequestDto } from './dto/create-request.dto';
@@ -8,6 +8,7 @@ import { User } from '../user/entities/user.entity';
 import { Purchase } from '../purchase/entities/purchase.entity';
 import { UserRole } from '../shared/enums/role.enum';
 import { RequestStatus } from '../shared/enums/request-status.enum';
+import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 
 @Injectable()
 export class RequestService {
@@ -18,28 +19,28 @@ export class RequestService {
     private userRepository: Repository<User>,
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
-  ) {}
+  ) { }
 
-  async create(createRequestDto: CreateRequestDto, requestingUser: User) {
+  async create(createRequestDto: CreateRequestDto, requestingUser: User): Promise<ApiResponse> {
     // Validate admin user exists and is admin
     const adminUser = await this.userRepository.findOne({
       where: { id: createRequestDto.adminUserId, role: UserRole.ADMIN },
     });
     if (!adminUser) {
-      throw new BadRequestException('Invalid admin user');
+      return ApiResponseUtil.error('Invalid admin user');
     }
 
-    // Validate purchase exists and belongs to admin
-    const purchase = await this.purchaseRepository.findOne({
-      where: { id: createRequestDto.purchaseId, userId: adminUser.id },
-    });
-    if (!purchase) {
-      throw new BadRequestException('Purchase not found or does not belong to admin');
-    }
+    // // Validate purchase exists and belongs to admin
+    // const purchase = await this.purchaseRepository.findOne({
+    //   where: { id: createRequestDto.purchaseId, userId: adminUser.id },
+    // });
+    // if (!purchase) {
+    //   return ApiResponseUtil.error('Purchase not found or does not belong to admin');
+    // }
 
     // Check if requesting user is branch user
     if (requestingUser.role !== UserRole.BRANCH) {
-      throw new BadRequestException('Only branch users can create requests');
+      return ApiResponseUtil.error('Only branch users can create requests');
     }
 
     const request = this.requestRepository.create({
@@ -48,10 +49,11 @@ export class RequestService {
       status: RequestStatus.REQUEST,
     });
 
-    return this.requestRepository.save(request);
+    const savedRequest = await this.requestRepository.save(request);
+    return ApiResponseUtil.success(savedRequest, 'Request created successfully');
   }
 
-  async findAll(user: User) {
+  async findAll(user: User): Promise<ApiResponse> {
     const query = this.requestRepository
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.requestingUser', 'requestingUser')
@@ -65,32 +67,37 @@ export class RequestService {
       query.andWhere('request.requestingUserId = :userId', { userId: user.id });
     }
 
-    return query.getMany();
+    const requests = await query.getMany();
+    return ApiResponseUtil.success(requests);
   }
 
-  async findOne(id: number, user: User) {
+  async findOne(id: number, user: User): Promise<ApiResponse> {
     const request = await this.requestRepository.findOne({
       where: { id, isRemoved: false },
       relations: ['requestingUser', 'adminUser', 'purchase'],
     });
 
     if (!request) {
-      throw new NotFoundException('Request not found');
+      return ApiResponseUtil.error('Request not found');
     }
 
     // Check permissions
     if (user.role === UserRole.ADMIN && request.adminUserId !== user.id) {
-      throw new BadRequestException('Access denied');
+      return ApiResponseUtil.error('Access denied');
     }
     if (user.role === UserRole.BRANCH && request.requestingUserId !== user.id) {
-      throw new BadRequestException('Access denied');
+      return ApiResponseUtil.error('Access denied');
     }
 
-    return request;
+    return ApiResponseUtil.success(request);
   }
 
-  async update(id: number, updateRequestDto: UpdateRequestDto, user: User) {
-    const request = await this.findOne(id, user);
+  async update(id: number, updateRequestDto: UpdateRequestDto, user: User): Promise<ApiResponse> {
+    const findResult = await this.findOne(id, user);
+    if (!findResult.success) {
+      return findResult;
+    }
+    const request = findResult.data;
 
     const oldStatus = request.status;
     const newStatus = updateRequestDto.status;
@@ -100,25 +107,28 @@ export class RequestService {
       if (user.role === UserRole.ADMIN) {
         // Admins can update to Accept, Reject, InTransit
         if (request.adminUserId !== user.id) {
-          throw new BadRequestException('Only assigned admin can update request status');
+          return ApiResponseUtil.error('Only assigned admin can update request status');
         }
         if (![RequestStatus.ACCEPT, RequestStatus.REJECT, RequestStatus.IN_TRANSIT].includes(newStatus)) {
-          throw new BadRequestException('Admins can only set status to Accept, Reject, or InTransit');
+          return ApiResponseUtil.error('Admins can only set status to Accept, Reject, or InTransit');
         }
       } else if (user.role === UserRole.BRANCH) {
         // Branch users can only update InTransit to Delivered
         if (request.requestingUserId !== user.id) {
-          throw new BadRequestException('Access denied');
+          return ApiResponseUtil.error('Access denied');
         }
         if (newStatus !== RequestStatus.DELIVERED || oldStatus !== RequestStatus.IN_TRANSIT) {
-          throw new BadRequestException('Branch users can only mark InTransit requests as Delivered');
+          return ApiResponseUtil.error('Branch users can only mark InTransit requests as Delivered');
         }
       } else {
-        throw new BadRequestException('Unauthorized to update request status');
+        return ApiResponseUtil.error('Unauthorized to update request status');
       }
 
       // Validate status transitions
-      await this.validateStatusTransition(oldStatus, newStatus, request);
+      const validationResult = await this.validateStatusTransition(oldStatus, newStatus, request);
+      if (validationResult) {
+        return validationResult;
+      }
     }
 
     // Update the request
@@ -130,17 +140,18 @@ export class RequestService {
       await this.handleDelivery(request);
     }
 
-    return updatedRequest;
+    return ApiResponseUtil.success(updatedRequest, 'Request updated successfully');
   }
 
-  async getAdminsForDropdown() {
-    return this.userRepository.find({
+  async getAdminsForDropdown(): Promise<ApiResponse> {
+    const admins = await this.userRepository.find({
       where: { role: UserRole.ADMIN, isRemoved: false },
       select: ['id', 'username'],
     });
+    return ApiResponseUtil.success(admins);
   }
 
-  private async validateStatusTransition(oldStatus: RequestStatus, newStatus: RequestStatus, request: Request) {
+  private async validateStatusTransition(oldStatus: RequestStatus, newStatus: RequestStatus, request: Request): Promise<ApiResponse | null> {
     const validTransitions: Record<RequestStatus, RequestStatus[]> = {
       [RequestStatus.REQUEST]: [RequestStatus.ACCEPT, RequestStatus.REJECT],
       [RequestStatus.ACCEPT]: [RequestStatus.IN_TRANSIT],
@@ -150,16 +161,21 @@ export class RequestService {
     };
 
     if (!validTransitions[oldStatus]?.includes(newStatus)) {
-      throw new BadRequestException(`Invalid status transition from ${oldStatus} to ${newStatus}`);
+      return ApiResponseUtil.error(`Invalid status transition from ${oldStatus} to ${newStatus}`);
     }
 
     // Additional validation for Accept: check stock availability
     if (newStatus === RequestStatus.ACCEPT) {
-      await this.validateStockAvailability(request);
+      const stockResult = await this.validateStockAvailability(request);
+      if (stockResult) {
+        return stockResult;
+      }
     }
+
+    return null;
   }
 
-  private async validateStockAvailability(request: Request) {
+  private async validateStockAvailability(request: Request): Promise<ApiResponse | null> {
     // Get admin's inventory for this purchase
     const adminInventory = await this.purchaseRepository
       .createQueryBuilder('purchase')
@@ -175,8 +191,10 @@ export class RequestService {
     const availableQuantity = Number(adminInventory?.totalQuantity || 0);
 
     if (availableQuantity < request.quantityRequested) {
-      throw new BadRequestException(`Insufficient stock. Available: ${availableQuantity}, Requested: ${request.quantityRequested}`);
+      return ApiResponseUtil.error(`Insufficient stock. Available: ${availableQuantity}, Requested: ${request.quantityRequested}`);
     }
+
+    return null;
   }
 
   private async handleDelivery(request: Request) {
@@ -213,7 +231,8 @@ export class RequestService {
     await this.purchaseRepository.save(adminDeduction);
   }
 
-  remove(id: number) {
-    return this.requestRepository.update(id, { isRemoved: true });
+  async remove(id: number): Promise<ApiResponse> {
+    await this.requestRepository.update(id, { isRemoved: true });
+    return ApiResponseUtil.success(null, 'Request removed successfully');
   }
 }

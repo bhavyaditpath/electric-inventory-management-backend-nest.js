@@ -23,7 +23,7 @@ export class AuthService {
     private jwtService: JwtService,
     private emailService: EmailService,
     private configService: ConfigService
-  ) {}
+  ) { }
 
   async register(dto: RegisterDto): Promise<ApiResponse> {
     const exists = await this.userRepo.findOne({
@@ -114,38 +114,45 @@ export class AuthService {
     const { email, firstName, lastName, picture, googleId } = req.user;
 
     // Find or create user
+    // Find user by googleId
     let user = await this.userRepo.findOne({
       where: { googleId }
     });
 
     if (!user) {
-      // Check if email already exists
+      // Check both email and username (because username may be email)
       const existingUser = await this.userRepo.findOne({
-        where: { email }
+        where: [
+          { email },
+          { username: email }
+        ]
       });
 
       if (existingUser) {
-        // Link Google account to existing user
+        // Link Google to existing user
         existingUser.googleId = googleId;
         existingUser.firstName = firstName;
         existingUser.lastName = lastName;
         existingUser.profilePicture = picture;
         existingUser.isEmailVerified = true;
+
         user = await this.userRepo.save(existingUser);
       } else {
-        // Create new user
+        // Create new Google user
         const defaultBranchId = this.configService.get<number>('DEFAULT_BRANCH_ID') || 1;
+
         user = this.userRepo.create({
-          username: email, // Use email as username for Google users
+          username: email,
           email,
           googleId,
           firstName,
           lastName,
           profilePicture: picture,
           isEmailVerified: true,
-          role: UserRole.BRANCH, // Default role, can be changed later
+          role: UserRole.BRANCH,
           branchId: defaultBranchId
         });
+
         user = await this.userRepo.save(user);
       }
     }
@@ -153,7 +160,7 @@ export class AuthService {
     const tokens = this.generateTokens(user);
 
     // Redirect to frontend with tokens or set in cookies
-    const redirectUrl = `${this.configService.get<string>('FRONTEND_URL')}/auth/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`;
+    const redirectUrl = `${this.configService.get<string>('FRONTEND_URL')}/auth/google/callback?access_token=${tokens.access_token}&refresh_token=${tokens.refresh_token}`;
     res.redirect(redirectUrl);
   }
 

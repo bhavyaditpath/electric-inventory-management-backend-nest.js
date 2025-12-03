@@ -33,6 +33,42 @@ TypeORM is used as the ORM for the following reasons:
 - Query builder and raw SQL support when needed.
 - Automatic synchronization (though disabled in production for safety).
 
+## TypeORM Utility Types
+
+This project utilizes several TypeScript utility types from TypeORM to handle partial entity data in the generic repository pattern:
+
+### Partial<T>
+- **Type**: Built-in TypeScript utility type
+- **Purpose**: Makes all properties of type `T` optional
+- **Usage**: General TypeScript partial objects, not specific to database operations
+- **Example**: `Partial<User>` allows creating a user object with only some properties defined
+
+### DeepPartial<T>
+- **Type**: TypeORM utility type
+- **Purpose**: Recursively makes all properties of type `T` and its nested objects optional
+- **Usage**: Used for creating new entities and bulk operations where you may not provide all required fields
+- **Where used in codebase**:
+  - `create(data: DeepPartial<T>)` - Creating new entities with partial data
+  - `bulkInsert(data: DeepPartial<T>[])` - Bulk insert operations
+  - `bulkUpdate(data: DeepPartial<T>[])` - Bulk update operations
+- **Example**: Allows creating nested relations partially, e.g., `DeepPartial<User>` can include partial branch data
+
+### QueryDeepPartialEntity<T>
+- **Type**: TypeORM query builder utility type
+- **Purpose**: Specifically designed for update operations, allows partial updates including nested relations
+- **Usage**: Used when updating existing entities, supports complex update queries with relations
+- **Where used in codebase**:
+  - `update(id: any, data: QueryDeepPartialEntity<T>)` - Updating existing entities
+- **Example**: Enables updating nested properties like user.branch.name in a single update operation
+
+### When to Use What
+
+- **Use `Partial<T>`**: For general TypeScript operations where you need optional properties but don't need database-specific features
+- **Use `DeepPartial<T>`**: When creating new records or performing bulk operations where you want flexibility in providing data, including nested objects
+- **Use `QueryDeepPartialEntity<T>`**: When updating existing records, especially when you need to update nested relations or perform complex update operations
+
+These types provide type safety while allowing flexibility in how you interact with your entities, making the API more developer-friendly and reducing boilerplate code.
+
 ## Database Connection
 
 The application connects to a PostgreSQL database using environment variables. The connection is configured in `src/config/typeorm.config.ts`:

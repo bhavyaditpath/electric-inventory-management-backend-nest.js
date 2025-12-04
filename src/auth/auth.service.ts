@@ -186,7 +186,7 @@ export class AuthService {
 
   async refreshToken(refreshToken: string): Promise<ApiResponse> {
     try {
-      const payload = this.jwtService.verify(refreshToken) as any;
+      const payload = this.jwtService.verify(refreshToken);
       if (payload.type !== 'refresh') {
         return ApiResponseUtil.error("Invalid refresh token");
       }
@@ -204,5 +204,33 @@ export class AuthService {
     } catch (error) {
       return ApiResponseUtil.error("Invalid or expired refresh token");
     }
+  }
+
+  async getProfile(userId: number): Promise<ApiResponse> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'username', 'email', 'firstName', 'lastName', 'profilePicture', 'role', 'branchId'],
+      relations: ['branch']
+    });
+    console.log(userId)
+
+    if (!user) {
+      return ApiResponseUtil.error("User not found");
+    }
+
+    // Transform response to include branch name
+    const profile = {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      profilePicture: user.profilePicture,
+      role: user.role,
+      branch: user.branch ? user.branch.name : null,
+      branchId: user.branchId
+    };
+
+    return ApiResponseUtil.success(profile, "Profile retrieved successfully");
   }
 }

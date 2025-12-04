@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as ExcelJS from 'exceljs';
 import { Purchase } from '../purchase/entities/purchase.entity';
 import { ReportPreference } from './entities/report-preference.entity';
 import { CreateReportPreferenceDto } from './dto/create-report-preference.dto';
@@ -145,7 +146,7 @@ export class ReportsService {
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
     const userSuffix = userId ? `_user_${userId}` : '_all_users';
-    return `${reportType}_${dateStr}_${timeStr}${userSuffix}.json`;
+    return `${reportType}_${dateStr}_${timeStr}${userSuffix}.xlsx`;
   }
 
   async generateAndSaveReport(reportType: ReportType, userId?: number): Promise<string> {
@@ -177,14 +178,41 @@ export class ReportsService {
     const fileName = this.generateReportFileName(reportType, userId);
     const filePath = path.join(folderPath, fileName);
 
-    const reportContent = {
-      reportType,
-      generatedAt: new Date().toISOString(),
-      userId: userId || 'all',
-      data: reportData,
-    };
+    // Create Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`);
 
-    fs.writeFileSync(filePath, JSON.stringify(reportContent, null, 2), 'utf8');
+    // Add report metadata
+    worksheet.addRow(['Report Type', reportType.toUpperCase()]);
+    worksheet.addRow(['Generated At', new Date().toISOString()]);
+    worksheet.addRow(['User ID', userId || 'All Users']);
+    worksheet.addRow(['Period Start', reportData.period.startDate.toISOString()]);
+    worksheet.addRow(['Period End', reportData.period.endDate.toISOString()]);
+    worksheet.addRow([]); // Empty row
+
+    // Add summary section
+    worksheet.addRow(['SUMMARY']);
+    worksheet.addRow(['Total Purchases', reportData.summary.totalPurchases]);
+    worksheet.addRow(['Total Quantity', reportData.summary.totalQuantity]);
+    worksheet.addRow(['Total Price', reportData.summary.totalPrice]);
+    worksheet.addRow(['Average Price', reportData.summary.averagePrice]);
+    worksheet.addRow([]); // Empty row
+
+    // Style the headers
+    worksheet.getCell('A1').font = { bold: true };
+    worksheet.getCell('A7').font = { bold: true };
+    worksheet.getCell('A8').font = { bold: true };
+    worksheet.getCell('A9').font = { bold: true };
+    worksheet.getCell('A10').font = { bold: true };
+    worksheet.getCell('A11').font = { bold: true };
+
+    // Auto-fit columns
+    worksheet.columns.forEach(column => {
+      column.width = 20;
+    });
+
+    // Save the Excel file
+    await workbook.xlsx.writeFile(filePath);
 
     return filePath;
   }

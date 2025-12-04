@@ -138,7 +138,10 @@ export class RequestService {
     Object.assign(request, updateRequestDto);
     const updatedRequest = await this.requestRepository.save(request);
 
-    // Handle inventory adjustments for Delivered status
+    // Handle inventory adjustments
+    if (newStatus === RequestStatus.IN_TRANSIT && oldStatus !== RequestStatus.IN_TRANSIT) {
+      await this.handleInTransit(request);
+    }
     if (newStatus === RequestStatus.DELIVERED && oldStatus !== RequestStatus.DELIVERED) {
       await this.handleDelivery(request);
     }
@@ -247,38 +250,39 @@ export class RequestService {
     return null;
   }
 
-  private async handleDelivery(request: Request) {
-    // Create a new purchase entry for the branch user (increasing their inventory)
-    const branchPurchase = this.purchaseRepository.create({
-      productName: request.purchase.productName,
-      quantity: request.quantityRequested,
-      unit: request.purchase.unit,
-      pricePerUnit: request.purchase.pricePerUnit,
-      totalPrice: request.quantityRequested * request.purchase.pricePerUnit,
-      lowStockThreshold: request.purchase.lowStockThreshold,
-      brand: request.purchase.brand,
-      userId: request.requestingUserId,
-      branchId: request.requestingUser.branchId,
-      createdBy: request.adminUserId,
+  private async handleInTransit(request: Request) {
+    // Find admin's most recent purchase of the same product and brand
+    const adminPurchase = await this.purchaseRepository.findOne({
+      where: {
+        userId: request.adminUserId,
+        productName: request.purchase.productName,
+        brand: request.purchase.brand,
+        isRemoved: false,
+      },
+      order: { createdAt: 'DESC' },
     });
+
+    if (adminPurchase) {
+      // Subtract the requested quantity from admin's purchase
+      adminPurchase.quantity = Number(adminPurchase.quantity) - Number(request.quantityRequested);
+      adminPurchase.totalPrice = adminPurchase.quantity * adminPurchase.pricePerUnit;
+
+      // If quantity becomes zero or negative, mark as removed
+      if (adminPurchase.quantity <= 0) {
+        adminPurchase.isRemoved = true;
+      }
+
+      await this.purchaseRepository.save(adminPurchase);
+    }
+  }
+
+  private async handleDelivery(request: Request) {
+    // Update the branch user's purchase quantity
+    const branchPurchase = request.purchase;
+    branchPurchase.quantity = request.quantityRequested;
+    branchPurchase.totalPrice = request.quantityRequested * branchPurchase.pricePerUnit;
 
     await this.purchaseRepository.save(branchPurchase);
-
-    // Deduct quantity from admin's inventory by creating a negative purchase entry
-    const adminDeduction = this.purchaseRepository.create({
-      productName: request.purchase.productName,
-      quantity: -request.quantityRequested, // Negative quantity to reduce inventory
-      unit: request.purchase.unit,
-      pricePerUnit: request.purchase.pricePerUnit,
-      totalPrice: -(request.quantityRequested * request.purchase.pricePerUnit), // Negative total
-      lowStockThreshold: request.purchase.lowStockThreshold,
-      brand: request.purchase.brand,
-      userId: request.adminUserId,
-      branchId: null, // Admin doesn't have branch
-      createdBy: request.adminUserId,
-    });
-
-    await this.purchaseRepository.save(adminDeduction);
   }
 
   async remove(id: number): Promise<ApiResponse> {

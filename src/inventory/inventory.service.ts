@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Purchase } from '../purchase/entities/purchase.entity';
 import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
+import { RequestStatus } from '../shared/enums/request-status.enum';
 
 @Injectable()
 export class InventoryService {
@@ -17,6 +18,7 @@ export class InventoryService {
       .createQueryBuilder('purchase')
       .leftJoin('purchase.user', 'user')
       .leftJoin('purchase.branch', 'branch')
+      .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
       .select([
         'purchase.id',
         'purchase.productName',
@@ -31,7 +33,7 @@ export class InventoryService {
         'user.username',
         'user.role',
 
-        'branch.id',
+        'branch.id',  
         'branch.name',
       ])
       .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
@@ -43,7 +45,8 @@ export class InventoryService {
     } else if (user.role === UserRole.BRANCH) {
       query = query.andWhere('purchase.createdBy = :userId', {
         userId: user.id,
-      });
+      })
+      .andWhere('(req.id IS NULL OR req.status = :deliveredStatus)', { deliveredStatus: RequestStatus.DELIVERED });
     }
 
     const rows = await query.getRawMany();

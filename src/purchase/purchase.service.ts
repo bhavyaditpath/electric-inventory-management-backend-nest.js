@@ -6,6 +6,8 @@ import { CreatePurchaseDto, UpdatePurchaseDto } from './dto/purchase.dto';
 import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
 import { AlertService } from '../alert/alert.service';
+import { Request } from '../request/entities/request.entity';
+import { RequestStatus } from '../shared/enums/request-status.enum';
 
 @Injectable()
 export class PurchaseService {
@@ -14,6 +16,8 @@ export class PurchaseService {
     private purchaseRepository: Repository<Purchase>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Request)
+    private requestRepository: Repository<Request>,
     private alertService: AlertService,
   ) {}
 
@@ -42,7 +46,24 @@ export class PurchaseService {
       createdBy: userId,
     });
 
+    // If branch user and adminUserId provided, set quantity to 0 (will be updated when delivered)
+    if (user.role === UserRole.BRANCH && createPurchaseDto.adminUserId) {
+      purchase.quantity = 0;
+    }
+
     const savedPurchase = await this.purchaseRepository.save(purchase);
+
+    // // If branch user and adminUserId provided, create a request
+    // if (user.role === UserRole.BRANCH && createPurchaseDto.adminUserId) {
+    //   const request = this.requestRepository.create({
+    //     requestingUserId: userId,
+    //     adminUserId: createPurchaseDto.adminUserId,
+    //     purchaseId: savedPurchase.id,
+    //     status: RequestStatus.REQUEST,
+    //     quantityRequested: createPurchaseDto.quantity,
+    //   });
+    //   await this.requestRepository.save(request);
+    // }
 
     // Generate alerts for the branch after purchase is saved
     if (user.branchId) {

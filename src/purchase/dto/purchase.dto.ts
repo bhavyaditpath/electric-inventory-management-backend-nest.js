@@ -35,6 +35,10 @@ export class CreatePurchaseDto {
   @IsNumber()
   @Transform(({ value }) => parseFloat(value))
   branchId?: number;
+
+  @IsOptional()
+  @IsNumber()
+  adminUserId?: number;
 }
 
 export class UpdatePurchaseDto {
@@ -78,6 +82,10 @@ export class UpdatePurchaseDto {
   @IsNumber()
   @Transform(({ value }) => parseFloat(value))
   branchId?: number;
+
+  @IsOptional()
+  @IsNumber()
+  adminUserId?: number;
 }
 
 export class PurchaseResponseDto {

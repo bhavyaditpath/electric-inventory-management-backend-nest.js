@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { BranchModule } from './branch/branch.module';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
@@ -12,6 +13,7 @@ import { SeederService } from './seeder/seeder.service';
 import { SeederModule } from './seeder/seeder.module';
 import { AlertModule } from './alert/alert.module';
 import { RequestModule } from './request/request.module';
+import { ReportsModule } from './reports/reports.module';
 import dbConfig from './config/database.config';
 
 @Module({
@@ -21,6 +23,7 @@ import dbConfig from './config/database.config';
       envFilePath: '.env',
     }),
     TypeOrmModule.forRoot(dbConfig),
+    ScheduleModule.forRoot(),
     BranchModule,
     UserModule,
     AuthModule,
@@ -29,6 +32,7 @@ import dbConfig from './config/database.config';
     SeederModule,
     AlertModule,
     RequestModule,
+    ReportsModule,
   ],
   controllers: [],
   providers: [SeederService],

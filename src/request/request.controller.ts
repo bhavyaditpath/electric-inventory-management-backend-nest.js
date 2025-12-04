@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, Query } from '@nestjs/common';
 import { RequestService } from './request.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
@@ -11,8 +11,8 @@ export class RequestController {
   constructor(private readonly requestService: RequestService) {}
 
   @Get('admins')
-  getAdminsForDropdown() {
-    return this.requestService.getAdminsForDropdown();
+  getAdminsForDropdown(@Request() req, @Query('productName') productName?: string) {
+    return this.requestService.getAdminsForDropdown(productName, req.user as User);
   }
 
   @Post()

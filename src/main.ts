@@ -6,7 +6,7 @@ import { SeederService } from './seeder/seeder.service';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const seederService = app.get(SeederService);
-  await seederService.seed();
+  // await seederService.seed();
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe());
   await app.listen(process.env.PORT ?? 3000);

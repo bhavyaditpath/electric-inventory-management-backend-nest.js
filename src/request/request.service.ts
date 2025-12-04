@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, Not, Raw } from 'typeorm';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
 import { Request } from './entities/request.entity';
@@ -9,23 +9,26 @@ import { Purchase } from '../purchase/entities/purchase.entity';
 import { UserRole } from '../shared/enums/role.enum';
 import { RequestStatus } from '../shared/enums/request-status.enum';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
+import { GenericRepository } from '../shared/generic-repository';
 
 @Injectable()
 export class RequestService {
+  private userRepository: GenericRepository<User>;
+
   constructor(
     @InjectRepository(Request)
     private requestRepository: Repository<Request>,
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    userRepo: Repository<User>,
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
-  ) { }
+  ) {
+    this.userRepository = new GenericRepository(userRepo);
+  }
 
   async create(createRequestDto: CreateRequestDto, requestingUser: User): Promise<ApiResponse> {
     // Validate admin user exists and is admin
-    const adminUser = await this.userRepository.findOne({
-      where: { id: createRequestDto.adminUserId, role: UserRole.ADMIN },
-    });
+    const adminUser = await this.userRepository.withNoDeletedRecord().findOne({ id: createRequestDto.adminUserId, role: UserRole.ADMIN });
     if (!adminUser) {
       return ApiResponseUtil.error('Invalid admin user');
     }
@@ -143,11 +146,59 @@ export class RequestService {
     return ApiResponseUtil.success(updatedRequest, 'Request updated successfully');
   }
 
-  async getAdminsForDropdown(): Promise<ApiResponse> {
-    const admins = await this.userRepository.find({
-      where: { role: UserRole.ADMIN, isRemoved: false },
-      select: ['id', 'username'],
-    });
+  async getAdminsForDropdown(productName?: string, user?: User): Promise<ApiResponse> {
+    let admins;
+
+    if (productName) {
+      // Case-insensitive matching
+      const queryBuilder = this.purchaseRepository
+        .createQueryBuilder('purchase')
+        .select('purchase.userId', 'userId')
+        .where('LOWER(purchase.productName) = LOWER(:productName)', { productName })
+        .andWhere('purchase.isRemoved = false');
+
+      if (user) {
+        queryBuilder.andWhere('purchase.userId != :currentUserId', { currentUserId: user.id });
+      }
+
+      const adminIds = await queryBuilder
+        .groupBy('purchase.userId')
+        .getRawMany();
+
+      const ids = adminIds.map(a => a.userId);
+
+      if (ids.length === 0) {
+        admins = await this.userRepository.withNoDeletedRecord().findAll({
+          where: { role: UserRole.ADMIN, ...(user ? { id: Not(user.id) } : {}) },
+          select: ['id', 'username'],
+        });
+
+        return ApiResponseUtil.success(admins);
+      }
+
+      // Return admins who have the product
+      admins = await this.userRepository.withNoDeletedRecord().findAll({
+        where: {
+          role: UserRole.ADMIN,
+          id: user
+            ? Raw((alias) => `${alias} IN (:...ids) AND ${alias} != :currentUserId`, {
+              ids,
+              currentUserId: user.id,
+            })
+            : In(ids),
+        },
+        select: ['id', 'username'],
+      });
+
+    }
+    else {
+      // When no productName provided → return all admins
+      admins = await this.userRepository.withNoDeletedRecord().findAll({
+        where: { role: UserRole.ADMIN, ...(user ? { id: Not(user.id) } : {}) },
+        select: ['id', 'username'],
+      });
+    }
+
     return ApiResponseUtil.success(admins);
   }
 
@@ -179,10 +230,9 @@ export class RequestService {
     // Get admin's inventory for this purchase
     const adminInventory = await this.purchaseRepository
       .createQueryBuilder('purchase')
-      .where('purchase.userId = :userId AND purchase.productName = :productName AND purchase.brand = :brand AND purchase.isRemoved = :isRemoved', {
+      .where('purchase.userId = :userId AND purchase.productName = :productName AND purchase.isRemoved = :isRemoved', {
         userId: request.adminUserId,
         productName: request.purchase.productName,
-        brand: request.purchase.brand,
         isRemoved: false,
       })
       .select('SUM(purchase.quantity)', 'totalQuantity')

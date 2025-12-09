@@ -5,9 +5,10 @@ import { ReportsController } from './reports.controller';
 import { Purchase } from '../purchase/entities/purchase.entity';
 import { User } from '../user/entities/user.entity';
 import { ReportPreference } from './entities/report-preference.entity';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Purchase, User, ReportPreference])],
+  imports: [TypeOrmModule.forFeature([Purchase, User, ReportPreference]), AuthModule],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

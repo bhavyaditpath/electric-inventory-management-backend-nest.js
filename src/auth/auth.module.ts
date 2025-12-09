@@ -43,6 +43,6 @@ import { EmailService } from "./email.service";
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, GoogleStrategy, EmailService],
-  exports: [AuthService],
+  exports: [AuthService, EmailService],
 })
 export class AuthModule {}

@@ -11,6 +11,7 @@ import { CreateReportPreferenceDto } from './dto/create-report-preference.dto';
 import { UpdateReportPreferenceDto } from './dto/update-report-preference.dto';
 import { ReportType } from 'src/shared/enums/report-type.enum';
 import { DeliveryMethod } from 'src/shared/enums/delivery-method.enum';
+import { EmailService } from '../auth/email.service';
 
 @Injectable()
 export class ReportsService {
@@ -19,6 +20,7 @@ export class ReportsService {
     private purchaseRepository: Repository<Purchase>,
     @InjectRepository(ReportPreference)
     private reportPreferenceRepository: Repository<ReportPreference>,
+    private emailService: EmailService,
   ) { }
 
   async getDailyReport(userId?: number) {
@@ -166,45 +168,57 @@ export class ReportsService {
     return `${reportType}_${dateStr}_${timeStr}${userSuffix}.xlsx`;
   }
 
-  async generateAndSaveReport(reportType: ReportType, userId?: number): Promise<string> {
-    let reportData;
-
+  private async generateReportData(reportType: ReportType, userId?: number) {
     switch (reportType) {
       case ReportType.DAILY:
-        reportData = await this.getDailyReport(userId);
-        break;
+        return await this.getDailyReport(userId);
       case ReportType.WEEKLY:
-        reportData = await this.getWeeklyReport(userId);
-        break;
+        return await this.getWeeklyReport(userId);
       case ReportType.MONTHLY:
-        reportData = await this.getMonthlyReport(userId);
-        break;
+        return await this.getMonthlyReport(userId);
       case ReportType.HALF_YEARLY:
-        reportData = await this.getHalfYearlyReport(userId);
-        break;
+        return await this.getHalfYearlyReport(userId);
       case ReportType.YEARLY:
-        reportData = await this.getYearlyReport(userId);
-        break;
+        return await this.getYearlyReport(userId);
       default:
         throw new Error(`Unknown report type: ${reportType}`);
     }
+  }
 
-    const folderPath = this.getReportFolder(reportType);
-    this.ensureDirectoryExists(folderPath);
-
-    const fileName = this.generateReportFileName(reportType, userId);
-    const filePath = path.join(folderPath, fileName);
-
-    // Create Excel workbook
+  private createReportWorkbook(reportType: ReportType, reportData: any, userId?: number): ExcelJS.Workbook {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`);
 
     // Add report metadata
     worksheet.addRow(['Report Type', reportType.toUpperCase()]);
-    worksheet.addRow(['Generated At', new Date().toISOString()]);
+    worksheet.addRow(['Generated At', new Date().toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: true
+    })]);
     worksheet.addRow(['User ID', userId || 'All Users']);
-    worksheet.addRow(['Period Start', reportData.period.startDate.toISOString()]);
-    worksheet.addRow(['Period End', reportData.period.endDate.toISOString()]);
+    worksheet.addRow(['Period Start', reportData.period.startDate.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: true
+    })]);
+    worksheet.addRow(['Period End', reportData.period.endDate.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: true
+    })]);
     worksheet.addRow([]); // Empty row
 
     // Add summary section
@@ -228,10 +242,127 @@ export class ReportsService {
       column.width = 20;
     });
 
-    // Save the Excel file
+    return workbook;
+  }
+
+  async generateAndSaveReport(reportType: ReportType, userId?: number): Promise<string> {
+    const reportData = await this.generateReportData(reportType, userId);
+
+    const folderPath = this.getReportFolder(reportType);
+    this.ensureDirectoryExists(folderPath);
+
+    const fileName = this.generateReportFileName(reportType, userId);
+    const filePath = path.join(folderPath, fileName);
+
+    const workbook = this.createReportWorkbook(reportType, reportData, userId);
     await workbook.xlsx.writeFile(filePath);
 
     return filePath;
+  }
+
+  private async generateReportBuffer(reportType: ReportType, userId?: number): Promise<Buffer> {
+    const reportData = await this.generateReportData(reportType, userId);
+    const workbook = this.createReportWorkbook(reportType, reportData, userId);
+    return await workbook.xlsx.writeBuffer() as any;
+  }
+
+  private async sendReportEmail(to: string, reportType: ReportType, buffer: Buffer, userId?: number): Promise<void> {
+    const fileName = this.generateReportFileName(reportType, userId);
+    const subject = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
+    const generatedDate = new Date().toLocaleString();
+    const reportTypeDisplay = reportType.charAt(0).toUpperCase() + reportType.slice(1).toLowerCase();
+    const userDisplay = userId ? `User ID: ${userId}` : 'All Users';
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${reportTypeDisplay} Report</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background-color: #007bff;
+            color: #ffffff;
+            padding: 15px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+          }
+          .content {
+            padding: 20px;
+          }
+          .report-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+          }
+          .report-info p {
+            margin: 5px 0;
+            font-size: 14px;
+          }
+          .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 20px;
+          }
+          .attachment-note {
+            font-weight: bold;
+            color: #28a745;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>${reportTypeDisplay} Report</h1>
+          </div>
+          <div class="content">
+            <p>Hello,</p>
+            <p>Your scheduled <strong>${reportTypeDisplay.toLowerCase()}</strong> report has been generated and is attached to this email.</p>
+
+            <div class="report-info">
+              <p><strong>Report Details:</strong></p>
+              <p>Report Type: ${reportTypeDisplay}</p>
+              <p>Generated On: ${generatedDate}</p>
+              <p>${userDisplay}</p>
+            </div>
+
+            <p class="attachment-note">📎 Please find the report attached as an Excel file.</p>
+
+            <p>If you have any questions or need further assistance, please don't hesitate to contact us.</p>
+
+            <p>Best regards,<br>
+            Electric Inventory System</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email. Please do not reply to this message.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await this.emailService.sendReportEmail(to, subject, html, {
+      filename: fileName,
+      content: buffer,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
   }
 
   async processScheduledReports(): Promise<void> {
@@ -244,8 +375,10 @@ export class ReportsService {
       try {
         if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
           await this.generateAndSaveReport(preference.reportType, preference.userId);
+        } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
+          const reportBuffer = await this.generateReportBuffer(preference.reportType, preference.userId);
+          await this.sendReportEmail(preference.user.email || preference.user.username, preference.reportType, reportBuffer, preference.userId);
         }
-        // TODO: Add email delivery logic here when needed
       } catch (error) {
         console.error(`Failed to generate report for user ${preference.userId}:`, error);
       }
@@ -288,15 +421,20 @@ export class ReportsService {
         reportType,
         isActive: true,
         isRemoved: false,
-        deliveryMethod: DeliveryMethod.LOCAL_FILE
       },
       relations: ['user'],
     });
 
     for (const preference of preferences) {
       try {
-        await this.generateAndSaveReport(reportType, preference.userId);
-        console.log(`Generated ${reportType} report for user ${preference.userId}`);
+        if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
+          await this.generateAndSaveReport(reportType, preference.userId);
+          console.log(`Generated ${reportType} report for user ${preference.userId}`);
+        } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
+          const reportBuffer = await this.generateReportBuffer(reportType, preference.userId);
+          await this.sendReportEmail(preference.user.email, reportType, reportBuffer, preference.userId);
+          console.log(`Sent ${reportType} report via email to user ${preference.userId}`);
+        }
       } catch (error) {
         console.error(`Failed to generate ${reportType} report for user ${preference.userId}:`, error);
       }

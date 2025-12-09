@@ -10,33 +10,28 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Get('daily')
-  async getDailyReport(@Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    return this.reportsService.getDailyReport(userIdNum);
+  async getDailyReport(@Request() req) {
+    return this.reportsService.getDailyReport(req.user.id);
   }
 
   @Get('weekly')
-  async getWeeklyReport(@Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    return this.reportsService.getWeeklyReport(userIdNum);
+  async getWeeklyReport(@Request() req) {
+    return this.reportsService.getWeeklyReport(req.user.id);
   }
 
   @Get('monthly')
-  async getMonthlyReport(@Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    return this.reportsService.getMonthlyReport(userIdNum);
+  async getMonthlyReport(@Request() req) {
+    return this.reportsService.getMonthlyReport(req.user.id);
   }
 
   @Get('half-yearly')
-  async getHalfYearlyReport(@Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    return this.reportsService.getHalfYearlyReport(userIdNum);
+  async getHalfYearlyReport(@Request() req) {
+    return this.reportsService.getHalfYearlyReport(req.user.id);
   }
 
   @Get('yearly')
-  async getYearlyReport(@Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    return this.reportsService.getYearlyReport(userIdNum);
+  async getYearlyReport(@Request() req) {
+    return this.reportsService.getYearlyReport(req.user.id);
   }
 
   @Post('preferences')
@@ -66,9 +61,8 @@ export class ReportsController {
   }
 
   @Post('generate/:reportType')
-  async generateReport(@Param('reportType') reportType: string, @Query('userId') userId?: string) {
-    const userIdNum = userId ? parseInt(userId) : undefined;
-    const filePath = await this.reportsService.generateAndSaveReport(reportType as any, userIdNum);
+  async generateReport(@Param('reportType') reportType: string, @Request() req) {
+    const filePath = await this.reportsService.generateAndSaveReport(reportType as any, req.user.id);
     return {
       message: 'Report generated and saved successfully',
       filePath

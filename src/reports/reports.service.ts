@@ -19,7 +19,7 @@ export class ReportsService {
     private purchaseRepository: Repository<Purchase>,
     @InjectRepository(ReportPreference)
     private reportPreferenceRepository: Repository<ReportPreference>,
-  ) {}
+  ) { }
 
   async getDailyReport(userId?: number) {
     const now = new Date();
@@ -61,10 +61,10 @@ export class ReportsService {
       .createQueryBuilder('purchase')
       .leftJoin('purchase.user', 'user')
       .select([
-        'COUNT(purchase.id) as totalPurchases',
-        'SUM(purchase.quantity) as totalQuantity',
-        'SUM(purchase.totalPrice) as totalPrice',
-        'AVG(purchase.totalPrice) as averagePrice',
+        'COUNT(purchase.id) AS "totalPurchases"',
+        'SUM(purchase.quantity) AS "totalQuantity"',
+        'SUM(purchase.totalPrice) AS "totalPrice"',
+        'AVG(purchase.totalPrice) AS "averagePrice"',
       ])
       .where('purchase.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
@@ -78,16 +78,32 @@ export class ReportsService {
 
     const result = await query.getRawOne();
 
+    // Handle case where no purchases exist for the period
+    if (!result) {
+      return {
+        period: {
+          startDate,
+          endDate,
+        },
+        summary: {
+          totalPurchases: 0,
+          totalQuantity: 0,
+          totalPrice: 0,
+          averagePrice: 0,
+        },
+      };
+    }
+
     return {
       period: {
         startDate,
         endDate,
       },
       summary: {
-        totalPurchases: parseInt(result.totalPurchases) || 0,
-        totalQuantity: parseFloat(result.totalQuantity) || 0,
-        totalPrice: parseFloat(result.totalPrice) || 0,
-        averagePrice: parseFloat(result.averagePrice) || 0,
+        totalPurchases: parseInt(result.totalPurchases),
+        totalQuantity: parseFloat(result.totalQuantity),
+        totalPrice: parseFloat(result.totalPrice),
+        averagePrice: parseFloat(result.averagePrice),
       },
     };
   }

@@ -44,7 +44,8 @@ export class ReportsService {
 
   async getHalfYearlyReport(userId?: number) {
     const now = new Date();
-    const halfYearAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    const halfYearAgo = new Date(now);
+    halfYearAgo.setMonth(now.getMonth() - 6);
 
     return this.generateReport(halfYearAgo, now, userId);
   }

@@ -12,6 +12,7 @@ import { UpdateReportPreferenceDto } from './dto/update-report-preference.dto';
 import { ReportType } from 'src/shared/enums/report-type.enum';
 import { DeliveryMethod } from 'src/shared/enums/delivery-method.enum';
 import { EmailService } from '../auth/email.service';
+import { renderTemplate } from 'src/utils/template-loader';
 
 @Injectable()
 export class ReportsService {
@@ -273,90 +274,12 @@ export class ReportsService {
     const reportTypeDisplay = reportType.charAt(0).toUpperCase() + reportType.slice(1).toLowerCase();
     const userDisplay = userId ? `User ID: ${userId}` : 'All Users';
 
-    const html = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${reportTypeDisplay} Report</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 20px;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-          }
-          .header {
-            background-color: #007bff;
-            color: #ffffff;
-            padding: 15px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-          }
-          .content {
-            padding: 20px;
-          }
-          .report-info {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-          }
-          .report-info p {
-            margin: 5px 0;
-            font-size: 14px;
-          }
-          .footer {
-            text-align: center;
-            font-size: 12px;
-            color: #6c757d;
-            margin-top: 20px;
-          }
-          .attachment-note {
-            font-weight: bold;
-            color: #28a745;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>${reportTypeDisplay} Report</h1>
-          </div>
-          <div class="content">
-            <p>Hello,</p>
-            <p>Your scheduled <strong>${reportTypeDisplay.toLowerCase()}</strong> report has been generated and is attached to this email.</p>
-
-            <div class="report-info">
-              <p><strong>Report Details:</strong></p>
-              <p>Report Type: ${reportTypeDisplay}</p>
-              <p>Generated On: ${generatedDate}</p>
-              <p>${userDisplay}</p>
-            </div>
-
-            <p class="attachment-note">📎 Please find the report attached as an Excel file.</p>
-
-            <p>If you have any questions or need further assistance, please don't hesitate to contact us.</p>
-
-            <p>Best regards,<br>
-            Electric Inventory System</p>
-          </div>
-          <div class="footer">
-            <p>This is an automated email. Please do not reply to this message.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+    const html = renderTemplate("report-email", {
+      reportTypeDisplay,
+      reportTypeDisplayLower: reportTypeDisplay.toLowerCase(),
+      generatedDate,
+      userDisplay,
+    });
 
     await this.emailService.sendReportEmail(to, subject, html, {
       filename: fileName,

@@ -29,15 +29,21 @@ export class BranchService {
     return this.branchRepository.create(createBranchDto);
   }
 
-  async findAll(page?: number, pageSize?: number, search?: string) {
+  async findAll(page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'ASC' | 'DESC') {
     if (page && pageSize) {
-      return this.searchBranchesWithPagination(page, pageSize, search);
+      return this.searchBranchesWithPagination(page, pageSize, search, sortBy, sortOrder);
     }
     
     return this.branchRepository.withNoDeletedRecord().findAll();
   }
 
-  private async searchBranchesWithPagination(page: number, pageSize: number, search?: string) {
+  private async searchBranchesWithPagination(
+    page: number,
+    pageSize: number,
+    search?: string,
+    sortBy?: string,
+    sortOrder?: 'ASC' | 'DESC'
+  ) {
     const queryBuilder = this.branchRepository['repo']
       .createQueryBuilder('branch')
       .where('branch.isRemoved = :isRemoved', { isRemoved: false });
@@ -51,8 +57,12 @@ export class BranchService {
       );
     }
 
-    // Add ordering
-    queryBuilder.orderBy('branch.name', 'ASC');
+    // Add dynamic sorting
+    const validSortFields = ['name', 'address', 'phone', 'id', 'createdAt', 'updatedAt'];
+    const sortField = sortBy && validSortFields.includes(sortBy) ? sortBy : 'name';
+    const sortDirection = sortOrder === 'DESC' ? 'DESC' : 'ASC';
+    
+    queryBuilder.orderBy(`branch.${sortField}`, sortDirection);
 
     // Calculate pagination
     const offset = (page - 1) * pageSize;
@@ -98,3 +108,4 @@ export class BranchService {
     return branch;
   }
 }
+

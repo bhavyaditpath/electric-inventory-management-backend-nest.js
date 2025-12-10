@@ -21,8 +21,8 @@ export class BranchController {
 
   @Get()
   async findAll(@Query() paginationQuery: PaginationQueryDto) {
-    const { page, pageSize, search } = paginationQuery;
-    const result = await this.branchService.findAll(page, pageSize, search);
+    const { page, pageSize, search, sortBy, sortOrder } = paginationQuery;
+    const result = await this.branchService.findAll(page, pageSize, search, sortBy, sortOrder);
     return ApiResponseUtil.success(result);
   }
 

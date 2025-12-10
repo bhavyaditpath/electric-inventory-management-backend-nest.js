@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestj
 import { BranchService } from './branch.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
-import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { PaginationQueryDto } from '../shared/dto/pagination-query.dto';
 import { ApiResponseUtil } from '../shared/api-response';
 
 @Controller('branch')
@@ -21,8 +21,8 @@ export class BranchController {
 
   @Get()
   async findAll(@Query() paginationQuery: PaginationQueryDto) {
-    const { page, pageSize } = paginationQuery;
-    const result = await this.branchService.findAll(page, pageSize);
+    const { page, pageSize, search } = paginationQuery;
+    const result = await this.branchService.findAll(page, pageSize, search);
     return ApiResponseUtil.success(result);
   }
 

@@ -6,14 +6,19 @@ import { HashUtil } from '../utils/hash.util';
 import { UserDto } from './dto/user.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { BranchService } from '../branch/branch.service';
+import { GenericRepository } from '../shared/generic-repository';
 
 @Injectable()
 export class UserService {
+  private readonly userRepository: GenericRepository<User>;
+
   constructor(
     @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    repo: Repository<User>,
     private readonly branchService: BranchService,
-  ) { }
+  ) {
+    this.userRepository = new GenericRepository(repo);
+  }
 
   async create(userDto: UserDto): Promise<ApiResponse> {
     const { username, password, role, branchName } = userDto;
@@ -25,13 +30,12 @@ export class UserService {
     }
 
     // Check unique username inside SAME branch (only active users)
-    const existingUser = await this.userRepository.findOne({
-      where: {
-        username: username,
-        branchId: branch.id,
-        isRemoved: false,
-      }
-    });
+    const existingUser = await this.userRepository
+      .withNoDeletedRecord()
+      .findOne({
+        username,
+        branchId: branch.id
+      });
 
     if (existingUser) {
       return ApiResponseUtil.error('Username already exists in this branch');
@@ -40,7 +44,7 @@ export class UserService {
     // Hash password
     const hashedPassword = await HashUtil.hash(password!);
 
-    const user = this.userRepository.create({
+    const user = await this.userRepository.create({
       username,
       password: hashedPassword,
       role,
@@ -48,33 +52,59 @@ export class UserService {
       isRemoved: false,
     });
 
-    const savedUser = await this.userRepository.save(user);
-    return ApiResponseUtil.success(savedUser, 'User created successfully');
+    return ApiResponseUtil.success(user, 'User created successfully');
   }
 
-  async findAll(): Promise<ApiResponse> {
-    const users = await this.userRepository.find({
-      where: { isRemoved: false },
-      select: ['id', 'username', 'role', 'branchId', 'isRemoved'],
-      relations: ['branch']
-    });
-
-    // Transform the data to include only branch name instead of full branch object
-    const transformedUsers = users.map(user => ({
-      ...user,
-      branch: user.branch ? user.branch.name : null,
-      role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
-    }));
-
-    return ApiResponseUtil.success(transformedUsers, 'Users retrieved successfully');
+  async findAll(page?: number, pageSize?: number, search?: string): Promise<ApiResponse> {
+    if (page && pageSize) {
+      // Return paginated result
+      const paginatedResult = await this.userRepository
+        .withNoDeletedRecord()
+        .paginate(page, pageSize);
+      
+      // Transform the data to include only branch name instead of full branch object
+      const transformedUsers = paginatedResult.items.map(user => ({
+        ...user,
+        branch: user.branch ? user.branch.name : null,
+        role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
+      }));
+      
+      const transformedResult = {
+        ...paginatedResult,
+        items: transformedUsers
+      };
+      
+      return ApiResponseUtil.success(transformedResult, 'Users retrieved successfully');
+    } else {
+      // Build search options for non-paginated request
+      let options: any = {};
+      
+      if (search) {
+        // Simple search by username for now
+        options.where = { username: search };
+      }
+      
+      // Return all users (backward compatibility)
+      const users = await this.userRepository
+        .withNoDeletedRecord()
+        .findAll(options);
+      
+      // Transform the data to include only branch name instead of full branch object
+      const transformedUsers = users.map(user => ({
+        ...user,
+        branch: user.branch ? user.branch.name : null,
+        role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
+      }));
+      
+      return ApiResponseUtil.success(transformedUsers, 'Users retrieved successfully');
+    }
   }
 
   async findOne(id: number): Promise<ApiResponse> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      select: ['id', 'username', 'role', 'branchId', 'isRemoved'],
-      relations: ['branch']
-    });
+    const user = await this.userRepository
+      .withNoDeletedRecord()
+      .findOne({ id });
+
     if (!user) {
       return ApiResponseUtil.error('User not found');
     }
@@ -90,13 +120,13 @@ export class UserService {
   }
 
   async findByUsername(username: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { username } });
+    return this.userRepository.findOne({ username });
   }
 
   async update(id: number, userDto: UserDto): Promise<ApiResponse> {
-    const user = await this.userRepository.findOne({
-      where: { id, isRemoved: false },
-    });
+    const user = await this.userRepository
+      .withNoDeletedRecord()
+      .findOne({ id });
 
     if (!user) {
       return ApiResponseUtil.error('User not found');
@@ -113,13 +143,12 @@ export class UserService {
 
     // Check username uniqueness in same branch (exclude removed users)
     if (userDto.username) {
-      const existingUser = await this.userRepository.findOne({
-        where: {
+      const existingUser = await this.userRepository
+        .withNoDeletedRecord()
+        .findOne({
           username: userDto.username,
-          branchId: branchId,
-          isRemoved: false,
-        }
-      });
+          branchId: branchId
+        });
 
       if (existingUser && existingUser.id !== id) {
         return ApiResponseUtil.error('Username already exists in this branch');
@@ -132,21 +161,21 @@ export class UserService {
     }
 
     // Apply updates
-    Object.assign(user, {
+    const updatedUser = await this.userRepository.update(id, {
       ...userDto,
       branchId,
     });
 
-    const updatedUser = await this.userRepository.save(user);
     return ApiResponseUtil.success(updatedUser, 'User updated successfully');
   }
 
   async remove(id: number): Promise<ApiResponse> {
-    const user = await this.userRepository.findOne({ where: { id } });
+    const user = await this.userRepository.findOne({ id });
     if (!user) {
       return ApiResponseUtil.error('User not found');
     }
-    await this.userRepository.remove(user);
+
+    await this.userRepository.softDelete(id);
     return ApiResponseUtil.success(null, 'User deleted successfully');
   }
 }

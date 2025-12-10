@@ -29,10 +29,21 @@ export class BranchService {
     return this.branchRepository.create(createBranchDto);
   }
 
-  async findAll(page?: number, pageSize?: number) {
+  async findAll(page?: number, pageSize?: number, search?: string) {
     if (page && pageSize) {
+      // Build search options - for now, skip search in paginated mode
+      // TODO: Implement proper search with query builder
       return this.branchRepository.withNoDeletedRecord().paginate(page, pageSize);
     }
+    
+    // For backward compatibility without pagination
+    if (search) {
+      // Simple search by name for now
+      return this.branchRepository.withNoDeletedRecord().findAll({
+        where: { name: search }
+      });
+    }
+    
     return this.branchRepository.withNoDeletedRecord().findAll();
   }
 

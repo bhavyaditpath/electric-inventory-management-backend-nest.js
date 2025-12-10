@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserDto } from './dto/user.dto';
+import { PaginationQueryDto } from '../shared/dto/pagination-query.dto';
 import { ApiResponseUtil } from '../shared/api-response';
 
 @Controller('users')
@@ -13,8 +14,9 @@ export class UserController {
   }
 
   @Get()
-  async findAll() {
-    return this.userService.findAll();
+  async findAll(@Query() paginationQuery: PaginationQueryDto) {
+    const { page, pageSize, search } = paginationQuery;
+    return this.userService.findAll(page, pageSize, search);
   }
 
   @Get(':id')

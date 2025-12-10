@@ -113,7 +113,10 @@ export class SeederService {
     }
 
     // GENERATE ALERTS based on purchases
-    const allBranches = await this.branchService.findAll();
+    const allBranchesResult = await this.branchService.findAll();
+    // Handle both paginated and non-paginated responses
+    const allBranches = Array.isArray(allBranchesResult) ? allBranchesResult : allBranchesResult.items;
+    
     for (const branch of allBranches) {
       await this.alertService.generateAlertsForBranch(branch.id);
       Logger.log(`✔ Alerts generated for branch: ${branch.name}`);

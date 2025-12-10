@@ -29,7 +29,10 @@ export class BranchService {
     return this.branchRepository.create(createBranchDto);
   }
 
-  async findAll() {
+  async findAll(page?: number, pageSize?: number) {
+    if (page && pageSize) {
+      return this.branchRepository.withNoDeletedRecord().paginate(page, pageSize);
+    }
     return this.branchRepository.withNoDeletedRecord().findAll();
   }
 

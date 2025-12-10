@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { BranchService } from './branch.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { ApiResponseUtil } from '../shared/api-response';
 
 @Controller('branch')
@@ -19,8 +20,10 @@ export class BranchController {
   }
 
   @Get()
-  async findAll() {
-    return ApiResponseUtil.success(await this.branchService.findAll());
+  async findAll(@Query() paginationQuery: PaginationQueryDto) {
+    const { page, pageSize } = paginationQuery;
+    const result = await this.branchService.findAll(page, pageSize);
+    return ApiResponseUtil.success(result);
   }
 
   @Get(':id')

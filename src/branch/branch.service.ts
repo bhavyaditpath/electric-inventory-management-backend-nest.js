@@ -20,8 +20,8 @@ export class BranchService {
   async create(createBranchDto: CreateBranchDto) {
     // Check if branch name already exists
     const existingBranch = await this.branchRepository
-    .withNoDeletedRecord()
-    .findOne({ name: createBranchDto.name });
+      .withNoDeletedRecord()
+      .findOne({ name: createBranchDto.name });
     if (existingBranch) {
       throw new Error('Branch name already exists');
     }
@@ -31,20 +31,43 @@ export class BranchService {
 
   async findAll(page?: number, pageSize?: number, search?: string) {
     if (page && pageSize) {
-      // Build search options - for now, skip search in paginated mode
-      // TODO: Implement proper search with query builder
-      return this.branchRepository.withNoDeletedRecord().paginate(page, pageSize);
-    }
-    
-    // For backward compatibility without pagination
-    if (search) {
-      // Simple search by name for now
-      return this.branchRepository.withNoDeletedRecord().findAll({
-        where: { name: search }
-      });
+      return this.searchBranchesWithPagination(page, pageSize, search);
     }
     
     return this.branchRepository.withNoDeletedRecord().findAll();
+  }
+
+  private async searchBranchesWithPagination(page: number, pageSize: number, search?: string) {
+    const queryBuilder = this.branchRepository['repo']
+      .createQueryBuilder('branch')
+      .where('branch.isRemoved = :isRemoved', { isRemoved: false });
+
+    // Add search conditions if search term is provided
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      queryBuilder.andWhere(
+        '(branch.name LIKE :searchTerm)',
+        { searchTerm }
+      );
+    }
+
+    // Add ordering
+    queryBuilder.orderBy('branch.name', 'ASC');
+
+    // Calculate pagination
+    const offset = (page - 1) * pageSize;
+    queryBuilder.skip(offset).take(pageSize);
+
+    // Execute query
+    const [items, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: number) {

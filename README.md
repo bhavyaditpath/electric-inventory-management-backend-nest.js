@@ -297,6 +297,119 @@ The User entity has been updated to include OAuth fields:
 
 This implementation provides a smooth social login experience while maintaining security and integrating with the existing authentication system.
 
+## Handlebars Template Engine
+
+This project uses **Handlebars** as the template engine for generating dynamic HTML email content, particularly for report emails.
+
+### Why Handlebars?
+
+**Handlebars** was chosen for the following reasons:
+
+- **Simple Syntax**: Handlebars uses a clean, mustache-style syntax (`{{variable}}`) that's easy to read and write
+- **Logic-less Templates**: Encourages separation of logic from presentation, making templates more maintainable
+- **Powerful Features**: Supports helpers, partials, and custom functions for complex template logic
+- **Safe Compilation**: Automatically escapes HTML to prevent XSS attacks
+- **Large Ecosystem**: Well-maintained with extensive documentation and community support
+- **Node.js Native**: Works seamlessly with Node.js and has excellent TypeScript support
+
+### What is Handlebars Used For?
+
+In this project, Handlebars is specifically used for **email template rendering** in the reports module:
+
+1. **Report Email Generation**: When generating scheduled or on-demand reports, the system creates HTML email content using Handlebars templates
+2. **Dynamic Content**: Templates can include dynamic data such as:
+   - Report type and display names
+   - Generation timestamps
+   - User information
+   - Custom styling and formatting
+
+### Template Structure
+
+The project uses Handlebars templates stored in `src/templates/` directory:
+- `report-email.hbs`: Main template for report notification emails
+
+Example template usage:
+```typescript
+const html = renderTemplate("report-email", {
+  reportTypeDisplay: "Inventory Summary",
+  reportTypeDisplayLower: "inventory summary",
+  generatedDate: new Date().toLocaleDateString(),
+  userDisplay: "Generated for: John Doe"
+});
+```
+
+### Installation
+
+Handlebars is already included in the project dependencies:
+```bash
+npm install handlebars
+```
+
+### Template Helper Functions
+
+Handlebars supports custom helper functions that can be used in templates to format data or perform operations. These can be registered in the template-loader utility if needed.
+
+## process.cwd() vs __dirname
+
+This project uses `process.cwd()` instead of `__dirname` in the template loader utility. Here's why and the key differences:
+
+### What is process.cwd()?
+
+- **Current Working Directory**: Returns the directory from which the Node.js process was started
+- **Dynamic**: Can change during runtime if the process changes directories
+- **Application Context**: Represents where the application is being executed from
+
+### What is __dirname?
+
+- **Script Directory**: Returns the directory of the current JavaScript file being executed
+- **Static**: Always points to the directory containing the running script
+- **File System Context**: Represents where the code file is physically located
+
+### Why process.cwd() in This Project?
+
+In `src/utils/template-loader.ts`, we use `process.cwd()` for the following reasons:
+
+```typescript
+const filePath = path.join(process.cwd(), "src", "templates", `${templateName}.hbs`);
+```
+
+**Advantages of process.cwd():**
+
+1. **Deployment Flexibility**: Works correctly in both development and production environments
+2. **Relative Path Resolution**: Templates are resolved relative to the project root, not the script location
+3. **Consistent Behavior**: Same path resolution regardless of where the script is called from
+4. **Docker/Container Friendly**: Works correctly when the application is run from different directories in containers
+
+**When __dirname Would Fail:**
+
+If we used `__dirname`:
+```typescript
+const filePath = path.join(__dirname, "..", "templates", `${templateName}.hbs`);
+```
+
+This would break when:
+- The application is built and run from a different directory
+- The script is executed from a different working directory
+- Running in production environments with different directory structures
+
+### Key Differences Summary
+
+| Aspect | process.cwd() | __dirname |
+|--------|---------------|-----------|
+| **Returns** | Current working directory | Directory of current script |
+| **Can Change** | Yes (during runtime) | No (constant) |
+| **Use Case** | Application context | File location context |
+| **Template Loading** | ✅ Works in all environments | ❌ May break in production |
+| **Deployment** | ✅ Flexible | ❌ Rigid to file structure |
+
+### Best Practices
+
+1. **Use process.cwd() for**: Application resources, configuration files, template directories
+2. **Use __dirname for**: File manipulation, loading modules relative to script location
+3. **Consider the context**: Think about where your application will be deployed and how paths should be resolved
+
+This approach ensures that email templates are found reliably across different deployment scenarios, making the application more robust and maintainable.
+
 ## How to Add Migrations
 
 Migrations are used to manage database schema changes safely. To add a new migration:

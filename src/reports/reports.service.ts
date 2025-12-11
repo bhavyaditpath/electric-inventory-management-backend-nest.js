@@ -26,38 +26,53 @@ export class ReportsService {
 
   async getDailyReport(userId?: number) {
     const now = new Date();
-    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0); // Set to midnight today
 
-    return this.generateReport(dayAgo, now, userId);
+    return this.generateReport(startOfDay, now, userId);
   }
 
   async getWeeklyReport(userId?: number) {
     const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay()); // Start of current week (Sunday)
+    startOfWeek.setHours(0, 0, 0, 0);
 
-    return this.generateReport(weekAgo, now, userId);
+    return this.generateReport(startOfWeek, now, userId);
   }
 
   async getMonthlyReport(userId?: number) {
     const now = new Date();
-    const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    startOfMonth.setHours(0, 0, 0, 0);
 
-    return this.generateReport(monthAgo, now, userId);
+    return this.generateReport(startOfMonth, now, userId);
   }
 
   async getHalfYearlyReport(userId?: number) {
     const now = new Date();
-    const halfYearAgo = new Date(now);
-    halfYearAgo.setMonth(now.getMonth() - 6);
+    let startOfHalfYear = new Date(now);
 
-    return this.generateReport(halfYearAgo, now, userId);
+    // Calculate start of current half-year period
+    const currentMonth = now.getMonth();
+    if (currentMonth >= 6) {
+      // Second half: July 1st
+      startOfHalfYear = new Date(now.getFullYear(), 6, 1);
+    } else {
+      // First half: January 1st
+      startOfHalfYear = new Date(now.getFullYear(), 0, 1);
+    }
+    startOfHalfYear.setHours(0, 0, 0, 0);
+
+    return this.generateReport(startOfHalfYear, now, userId);
   }
 
   async getYearlyReport(userId?: number) {
     const now = new Date();
-    const yearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    startOfYear.setHours(0, 0, 0, 0);
 
-    return this.generateReport(yearAgo, now, userId);
+    return this.generateReport(startOfYear, now, userId);
   }
 
   private async generateReport(startDate: Date, endDate: Date, userId?: number) {

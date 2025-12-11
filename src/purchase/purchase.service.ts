@@ -19,7 +19,7 @@ export class PurchaseService {
     @InjectRepository(Request)
     private requestRepository: Repository<Request>,
     private alertService: AlertService,
-  ) {}
+  ) { }
 
   async findDuplicate(productName: string, userId: number) {
     return this.purchaseRepository.findOne({
@@ -32,13 +32,14 @@ export class PurchaseService {
   }
 
   async create(createPurchaseDto: CreatePurchaseDto, userId: number) {
-    // Get user to determine branch
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
-    // Create purchase record
+    await this.validateUniqueProductName(
+      createPurchaseDto.productName,
+      user.branchId,
+    );
+
     const purchase = this.purchaseRepository.create({
       ...createPurchaseDto,
       userId,
@@ -46,26 +47,12 @@ export class PurchaseService {
       createdBy: userId,
     });
 
-    // If branch user and adminUserId provided, set quantity to 0 (will be updated when delivered)
     if (user.role === UserRole.BRANCH && createPurchaseDto.adminUserId) {
       purchase.quantity = 0;
     }
 
     const savedPurchase = await this.purchaseRepository.save(purchase);
 
-    // // If branch user and adminUserId provided, create a request
-    // if (user.role === UserRole.BRANCH && createPurchaseDto.adminUserId) {
-    //   const request = this.requestRepository.create({
-    //     requestingUserId: userId,
-    //     adminUserId: createPurchaseDto.adminUserId,
-    //     purchaseId: savedPurchase.id,
-    //     status: RequestStatus.REQUEST,
-    //     quantityRequested: createPurchaseDto.quantity,
-    //   });
-    //   await this.requestRepository.save(request);
-    // }
-
-    // Generate alerts for the branch after purchase is saved
     if (user.branchId) {
       await this.alertService.generateAlertsForBranch(user.branchId);
     }
@@ -79,7 +66,7 @@ export class PurchaseService {
       .leftJoinAndSelect('purchase.user', 'user')
       .leftJoinAndSelect('purchase.branch', 'branch')
       .where('purchase.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('purchase.createdAt >= NOW() - INTERVAL \'3 days\''); 
+      .andWhere('purchase.createdAt >= NOW() - INTERVAL \'3 days\'');
 
     if (userId) {
       const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -112,13 +99,20 @@ export class PurchaseService {
 
   async update(id: number, updatePurchaseDto: UpdatePurchaseDto) {
     const purchase = await this.findOne(id);
+
+    await this.validateUniqueProductName(
+      updatePurchaseDto.productName ?? purchase.productName,
+      purchase.branchId!,
+      id
+    );
+
     Object.assign(purchase, updatePurchaseDto);
-    const updatedPurchase = await this.purchaseRepository.save(purchase);
+    const updated = await this.purchaseRepository.save(purchase);
     if (purchase.branchId) {
       await this.alertService.generateAlertsForBranch(purchase.branchId);
     }
 
-    return updatedPurchase;
+    return updated;
   }
 
   async remove(id: number) {
@@ -126,4 +120,28 @@ export class PurchaseService {
     purchase.isRemoved = true;
     return this.purchaseRepository.save(purchase);
   }
+
+  async validateUniqueProductName(
+    productName: string,
+    branchId: number,
+    excludeId?: number,
+  ) {
+    const query = this.purchaseRepository
+      .createQueryBuilder('purchase')
+      .where('purchase.productName = :productName', { productName })
+      .andWhere('purchase.branchId = :branchId', { branchId })
+      .andWhere('purchase.isRemoved = false');
+
+    // if (excludeId) {
+    //   query.andWhere('purchase.id != :excludeId', { excludeId });
+    // }
+
+    const existing = await query.getOne();
+    if (existing) {
+      throw new Error(
+        `Product "${productName}" already exists in this branch.`
+      );
+    }
+  }
+
 }

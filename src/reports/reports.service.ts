@@ -13,6 +13,7 @@ import { ReportType } from 'src/shared/enums/report-type.enum';
 import { DeliveryMethod } from 'src/shared/enums/delivery-method.enum';
 import { EmailService } from '../auth/email.service';
 import { renderTemplate } from 'src/utils/template-loader';
+import { ApiResponseUtil } from '../shared/api-response';
 
 @Injectable()
 export class ReportsService {
@@ -127,12 +128,26 @@ export class ReportsService {
     };
   }
 
-  async createPreference(userId: number, createDto: CreateReportPreferenceDto): Promise<ReportPreference> {
+  async createPreference(userId: number, createDto: CreateReportPreferenceDto): Promise<any> {
+    // Check for unique constraint - user can't have multiple preferences for same report type
+    const existingPreference = await this.reportPreferenceRepository.findOne({
+      where: {
+        userId,
+        reportType: createDto.reportType,
+        isRemoved: false
+      }
+    });
+
+    if (existingPreference) {
+      return ApiResponseUtil.error(`Report preference for ${createDto.reportType} already exists for this user`);
+    }
+
     const preference = this.reportPreferenceRepository.create({
       ...createDto,
       userId,
     });
-    return this.reportPreferenceRepository.save(preference);
+    const savedPreference = await this.reportPreferenceRepository.save(preference);
+    return ApiResponseUtil.success(savedPreference, 'Report preference created successfully');
   }
 
   async findUserPreferences(userId: number): Promise<ReportPreference[]> {
@@ -141,17 +156,41 @@ export class ReportsService {
     });
   }
 
-  async updatePreference(id: number, updateDto: UpdateReportPreferenceDto): Promise<ReportPreference> {
-    await this.reportPreferenceRepository.update(id, updateDto);
-    const preference = await this.reportPreferenceRepository.findOne({ where: { id } });
-    if (!preference) {
-      throw new Error('Report preference not found');
+  async updatePreference(id: number, updateDto: UpdateReportPreferenceDto): Promise<any> {
+    // First get the existing preference to check for unique constraint
+    const existingPreference = await this.reportPreferenceRepository.findOne({ where: { id } });
+    if (!existingPreference) {
+      return ApiResponseUtil.error('Report preference not found');
     }
-    return preference;
+
+    // Check if user is trying to change report type and if it would create a duplicate
+    if (updateDto.reportType && updateDto.reportType !== existingPreference.reportType) {
+      const duplicateCheck = await this.reportPreferenceRepository.findOne({
+        where: {
+          userId: existingPreference.userId,
+          reportType: updateDto.reportType,
+          isRemoved: false
+        }
+      });
+
+      if (duplicateCheck) {
+        return ApiResponseUtil.error(`Report preference for ${updateDto.reportType} already exists for this user`);
+      }
+    }
+
+    await this.reportPreferenceRepository.update(id, updateDto);
+    const updatedPreference = await this.reportPreferenceRepository.findOne({ where: { id } });
+    return ApiResponseUtil.success(updatedPreference, 'Report preference updated successfully');
   }
 
-  async removePreference(id: number): Promise<void> {
+  async removePreference(id: number): Promise<any> {
+    const preference = await this.reportPreferenceRepository.findOne({ where: { id } });
+    if (!preference) {
+      return ApiResponseUtil.error('Report preference not found');
+    }
+
     await this.reportPreferenceRepository.update(id, { isRemoved: true });
+    return ApiResponseUtil.success(null, 'Report preference removed successfully');
   }
 
   async getActivePreferences(userId: number): Promise<ReportPreference[]> {

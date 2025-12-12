@@ -3,6 +3,7 @@ import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateReportPreferenceDto } from './dto/create-report-preference.dto';
 import { UpdateReportPreferenceDto } from './dto/update-report-preference.dto';
+import { ApiResponse } from '../shared/api-response';
 
 @Controller('reports')
 @UseGuards(JwtAuthGuard)
@@ -35,7 +36,7 @@ export class ReportsController {
   }
 
   @Post('preferences')
-  async createPreference(@Body() createDto: CreateReportPreferenceDto, @Request() req) {
+  async createPreference(@Body() createDto: CreateReportPreferenceDto, @Request() req): Promise<ApiResponse> {
     return this.reportsService.createPreference(req.user.id, createDto);
   }
 
@@ -45,12 +46,12 @@ export class ReportsController {
   }
 
   @Put('preferences/:id')
-  async updatePreference(@Param('id') id: string, @Body() updateDto: UpdateReportPreferenceDto) {
+  async updatePreference(@Param('id') id: string, @Body() updateDto: UpdateReportPreferenceDto): Promise<ApiResponse> {
     return this.reportsService.updatePreference(parseInt(id), updateDto);
   }
 
   @Delete('preferences/:id')
-  async removePreference(@Param('id') id: string) {
+  async removePreference(@Param('id') id: string): Promise<ApiResponse> {
     return this.reportsService.removePreference(parseInt(id));
   }
 

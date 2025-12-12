@@ -178,4 +178,63 @@ export class AlertService {
     if (percentage > 0.1) return AlertPriority.MEDIUM;
     return AlertPriority.LOW;
   }
+  async updateProductAlert(
+  itemName: string,
+  brand: string,
+  branchId: number,
+  currentStock: number,
+  minStock: number
+) {
+  const alertType =
+    currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
+
+  // First resolve any other active alerts for this product
+  const activeAlerts = await this.alertRepository.find({
+    where: {
+      itemName: `${itemName} (${brand})`,
+      branchId,
+      status: AlertStatus.ACTIVE,
+    },
+  });
+
+  for (const a of activeAlerts) {
+    // If stock is healthy, resolve all active alerts
+    if (currentStock > minStock) {
+      a.status = AlertStatus.RESOLVED;
+      a.resolvedDate = new Date();
+      await this.alertRepository.save(a);
+    }
+  }
+
+  // If stock is healthy, no need to create new alerts
+  if (currentStock > minStock) return;
+
+  // Check if alert of this type already exists
+  const existing = await this.alertRepository.findOne({
+    where: {
+      itemName: `${itemName} (${brand})`,
+      branchId,
+      alertType,
+      status: AlertStatus.ACTIVE,
+    },
+  });
+
+  if (existing) {
+    existing.currentStock = currentStock;
+    existing.shortage = Math.max(0, minStock - currentStock);
+    existing.priority = this.calculatePriority(existing.shortage, minStock);
+    await this.alertRepository.save(existing);
+    return;
+  }
+
+  await this.create({
+    itemName: `${itemName} (${brand})`,
+    currentStock,
+    minStock,
+    shortage: Math.max(0, minStock - currentStock),
+    alertType,
+    branchId,
+  });
+}
+
 }

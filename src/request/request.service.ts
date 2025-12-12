@@ -189,12 +189,12 @@ export class RequestService {
   private async deductStockFIFO(request: Request) {
     let needed = Number(request.quantityRequested);
 
-    // Fetch all purchases for this admin & product (FIFO = oldest first).
-    // Use case-insensitive product match to avoid missing rows due to casing differences.
     const purchases = await this.purchaseRepository
       .createQueryBuilder('p')
       .where('p.userId = :uid', { uid: request.adminUserId })
-      .andWhere('LOWER(p.productName) = LOWER(:name)', { name: request.purchase.productName })
+      .andWhere('LOWER(p.productName) = LOWER(:name)', {
+        name: request.purchase.productName,
+      })
       .andWhere('p.isRemoved = false')
       .orderBy('p.createdAt', 'ASC')
       .getMany();
@@ -215,16 +215,37 @@ export class RequestService {
         p.quantity = 0;
         p.totalPrice = 0;
         p.isRemoved = true;
-
         await this.purchaseRepository.save(p);
       }
     }
 
     if (needed > 0) {
-      // This should not happen because validateStockAvailability ran earlier.
-      // Still, provide a clear error if it does.
       throw new Error('FIFO mismatch: insufficient stock after validation.');
     }
+
+    const stockSummary = await this.purchaseRepository
+      .createQueryBuilder('p')
+      .select('SUM(p.quantity)', 'total')
+      .addSelect('p.lowStockThreshold', 'minStock')
+      .where('p.userId = :uid', { uid: request.adminUserId })
+      .andWhere('LOWER(p.productName) = LOWER(:name)', {
+        name: request.purchase.productName,
+      })
+      .andWhere('p.isRemoved = false')
+      .groupBy('p.lowStockThreshold')
+      .getRawOne();
+
+    const finalStock = Number(stockSummary?.total ?? 0);
+    const minStock = Number(stockSummary?.minStock ?? request.purchase.lowStockThreshold);
+
+    const branchId = request.adminUser.branchId;
+    await this.alertService.updateProductAlert(
+      request.purchase.productName,
+      request.purchase.brand,
+      branchId,
+      finalStock,
+      minStock
+    );
   }
 
   // DELIVERED: BRANCH GETS STOCK -----------------
@@ -269,9 +290,9 @@ export class RequestService {
           role: UserRole.ADMIN,
           id: user
             ? Raw(alias => `${alias} IN (:...ids) AND ${alias} != :uid`, {
-                ids,
-                uid: user.id,
-              })
+              ids,
+              uid: user.id,
+            })
             : In(ids),
         },
         select: ['id', 'username'],

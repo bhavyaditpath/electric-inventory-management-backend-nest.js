@@ -1,5 +1,5 @@
 import { IsOptional, IsNumber, Min, Max, IsString, IsIn } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class PaginationQueryDto {
   @IsOptional()
@@ -23,6 +23,7 @@ export class PaginationQueryDto {
   @IsString()
   sortBy?: string;
 
+  @Transform(({ value }) => value?.toUpperCase())
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   sortOrder?: 'ASC' | 'DESC' = 'ASC';

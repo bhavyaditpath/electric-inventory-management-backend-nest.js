@@ -5,90 +5,112 @@ import { Purchase } from '../purchase/entities/purchase.entity';
 import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
 import { RequestStatus } from '../shared/enums/request-status.enum';
+import { GenericRepository } from '../shared/generic-repository';
+
+export interface InventorySearchParams {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+}
 
 @Injectable()
 export class InventoryService {
+  private readonly purchaseRepository: GenericRepository<Purchase>;
+
   constructor(
     @InjectRepository(Purchase)
-    private purchaseRepository: Repository<Purchase>,
-  ) { }
+    repo: Repository<Purchase>,
+  ) {
+    this.purchaseRepository = new GenericRepository(repo);
+  }
 
-  async findAll(user: User) {
-    let query = this.purchaseRepository
+  async findAll(user: User, params?: InventorySearchParams) {
+    const page = Number(params?.page) || 1;
+    const pageSize = Number(params?.pageSize) || 10;
+    const search = params?.search?.trim();
+    const sortBy = params?.sortBy;
+    const sortOrder = params?.sortOrder?.toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+    return this.findWithPagination(user, page, pageSize, search, sortBy, sortOrder);
+  }
+
+  private async findWithPagination(
+    user: User,
+    page: number,
+    pageSize: number,
+    search?: string,
+    sortBy?: string,
+    sortOrder: 'ASC' | 'DESC' = 'ASC',
+  ) {
+    const qb = this.purchaseRepository['repo']
       .createQueryBuilder('purchase')
+      .leftJoinAndSelect('purchase.branch', 'branch')
       .leftJoin('purchase.user', 'user')
-      .leftJoin('purchase.branch', 'branch')
       .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
-      .select([
-        'purchase.id',
-        'purchase.productName',
-        'purchase.quantity',
-        'purchase.unit',
-        'purchase.lowStockThreshold',
-        'purchase.brand',
-        'purchase.createdAt',
-        'purchase.branchId',
-        'purchase.userId',
-        'user.id',
-        'user.username',
-        'user.role',
-
-        'branch.id',  
-        'branch.name',
-      ])
       .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
 
     if (user.role === UserRole.ADMIN) {
-      query = query.andWhere('purchase.createdBy = :userId', {
-        userId: user.id,
-      });
-    } else if (user.role === UserRole.BRANCH) {
-      query = query.andWhere('purchase.createdBy = :userId', {
-        userId: user.id,
-      })
-      .andWhere('(req.id IS NULL OR req.status = :deliveredStatus)', { deliveredStatus: RequestStatus.DELIVERED });
+      qb.andWhere('purchase.createdBy = :userId', { userId: user.id });
+    } else {
+      qb.andWhere('purchase.createdBy = :userId', { userId: user.id })
+        .andWhere('(req.id IS NULL OR req.status = :delivered)', {
+          delivered: RequestStatus.DELIVERED,
+        });
     }
 
-    const rows = await query.getRawMany();
+    if (search) {
+      qb.andWhere(`(purchase.productName LIKE :s OR purchase.brand LIKE :s)`, {
+        s: `%${search}%`,
+      });
+    }
+
+    const validSort = ['productName', 'brand', 'quantity', 'unit', 'lowStockThreshold', 'createdAt'];
+    const sortField = validSort.includes(sortBy || '') ? sortBy : 'productName';
+    qb.orderBy(`purchase.${sortField}`, sortOrder);
+
+    const offset = (page - 1) * pageSize;
+    qb.skip(offset).take(pageSize);
+
+    const [rows, total] = await qb.getManyAndCount();
+
     const inventoryMap = new Map();
 
-    rows.forEach((r) => {
-      const productName = r.purchase_productName;
-      const branchId = r.purchase_branchId;
-      const brand = r.purchase_brand;
-
-      // Group uniquely by product + brand + branch
-      const key = `${productName}-${brand}-${branchId}`;
+    for (const r of rows) {
+      const key = `${r.productName}-${r.brand}-${r.branchId}`;
 
       if (!inventoryMap.has(key)) {
         inventoryMap.set(key, {
-          id: r.purchase_id,
-          productName: productName,
-          brand: brand,
+          id: r.id,
+          productName: r.productName,
+          brand: r.brand,
           currentQuantity: 0,
-          unit: r.purchase_unit,
-          lowStockThreshold: r.purchase_lowStockThreshold,
-          branchId: branchId,
-          branch: {
-            id: r.branch_id,
-            name: r.branch_name,
-          },
-          lastPurchaseDate: r.purchase_createdAt,
+          unit: r.unit,
+          lowStockThreshold: r.lowStockThreshold,
+          branchId: r.branchId,
+          branch: r.branch ? { id: r.branch.id, name: r.branch.name } : null,  // ✅ FIXED
+          lastPurchaseDate: r.createdAt,
           totalPurchased: 0,
         });
       }
 
       const item = inventoryMap.get(key);
+      item.currentQuantity += Number(r.quantity);
+      item.totalPurchased += Number(r.quantity);
 
-      item.currentQuantity += Number(r.purchase_quantity);
-      item.totalPurchased += Number(r.purchase_quantity);
-
-      if (r.purchase_createdAt > item.lastPurchaseDate) {
-        item.lastPurchaseDate = r.purchase_createdAt;
+      if (r.createdAt > item.lastPurchaseDate) {
+        item.lastPurchaseDate = r.createdAt;
       }
-    });
+    }
 
-
-    return Array.from(inventoryMap.values());
+    return {
+      items: Array.from(inventoryMap.values()),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
+
 }

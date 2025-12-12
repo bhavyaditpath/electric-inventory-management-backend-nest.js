@@ -4,7 +4,6 @@ import { User } from '../../user/entities/user.entity';
 import { Branch } from '../../branch/entities/branch.entity';
 
 @Entity('purchases')
-@Unique(['productName', 'brand']) // Ensure product name + brand combination is unique
 export class Purchase extends BaseEntityClass {
   @Column({ type: 'varchar', length: 255 })
   productName: string;

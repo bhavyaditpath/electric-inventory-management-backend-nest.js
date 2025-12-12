@@ -18,9 +18,11 @@ export class AlertService {
   ) { }
 
   async create(createAlertDto: CreateAlertDto): Promise<StockAlert> {
-    // Calculate priority if not provided
     if (!createAlertDto.priority) {
-      createAlertDto.priority = this.calculatePriority(createAlertDto.shortage, createAlertDto.minStock);
+      createAlertDto.priority = this.calculatePriority(
+        createAlertDto.shortage,
+        createAlertDto.minStock,
+      );
     }
 
     const alert = this.alertRepository.create(createAlertDto);
@@ -35,20 +37,14 @@ export class AlertService {
   ): Promise<{ data: StockAlert[]; total: number; page: number; limit: number }> {
     const query = this.alertRepository
       .createQueryBuilder('alert')
-      .where('alert."branchId" = :branchId', { branchId })
+      .where('alert.branchId = :branchId', { branchId })
       .andWhere('(alert.isRemoved = false OR alert.isRemoved IS NULL)');
 
-    if (status) {
-      query.andWhere('alert.status = :status', { status });
-    }
+    if (status) query.andWhere('alert.status = :status', { status });
 
-    query
-      .orderBy('alert.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    query.orderBy('alert.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
 
     const [data, total] = await query.getManyAndCount();
-
     return { data, total, page, limit };
   }
 
@@ -56,64 +52,11 @@ export class AlertService {
     const alert = await this.alertRepository.findOne({
       where: { id, isRemoved: false },
     });
-
-    if (!alert) {
-      throw new NotFoundException('Alert not found');
-    }
-
+    if (!alert) throw new NotFoundException('Alert not found');
     return alert;
   }
 
-  async resolve(id: number, resolveAlertDto: ResolveAlertDto): Promise<StockAlert> {
-    const alert = await this.findOne(id);
-
-    alert.status = AlertStatus.RESOLVED;
-    alert.resolvedDate = new Date();
-    if (resolveAlertDto.notes) {
-      alert.notes = resolveAlertDto.notes;
-    }
-
-    return this.alertRepository.save(alert);
-  }
-
-  async dismiss(id: number, dismissAlertDto?: DismissAlertDto): Promise<StockAlert> {
-    const alert = await this.findOne(id);
-
-    alert.status = AlertStatus.DISMISSED;
-    if (dismissAlertDto?.notes) {
-      alert.notes = dismissAlertDto.notes;
-    }
-
-    return this.alertRepository.save(alert);
-  }
-
-  async update(id: number, updateAlertDto: UpdateAlertDto): Promise<StockAlert> {
-    const alert = await this.findOne(id);
-    Object.assign(alert, updateAlertDto);
-    return this.alertRepository.save(alert);
-  }
-
-  async remove(id: number): Promise<void> {
-    const alert = await this.findOne(id);
-    alert.isRemoved = true;
-    await this.alertRepository.save(alert);
-  }
-
-  private calculatePriority(shortage: number, minStock: number): AlertPriority {
-    const shortagePercentage = shortage / minStock;
-
-    if (shortagePercentage > 0.5) {
-      return AlertPriority.CRITICAL;
-    } else if (shortagePercentage > 0.25) {
-      return AlertPriority.HIGH;
-    } else if (shortagePercentage > 0.1) {
-      return AlertPriority.MEDIUM;
-    } else {
-      return AlertPriority.LOW;
-    }
-  }
-
-  async findExistingAlert(
+  async findExistingAnyStatusAlert(
     itemName: string,
     brand: string,
     branchId: number,
@@ -124,16 +67,12 @@ export class AlertService {
         itemName: `${itemName} (${brand})`,
         branchId,
         alertType,
-        status: AlertStatus.ACTIVE,
         isRemoved: false,
       },
     });
   }
 
-  // Method to generate alerts based on inventory levels
   async generateAlertsForBranch(branchId: number): Promise<void> {
-    // Get inventory data for the branch
-    // This would typically call inventory service, but for now we'll query purchases directly
     const inventoryQuery = this.alertRepository.manager
       .createQueryBuilder()
       .select([
@@ -152,30 +91,42 @@ export class AlertService {
 
     for (const item of inventoryData) {
       const currentStock = Number(item.currentstock);
-      const minStock = item.minstock;
+      const minStock = Number(item.minstock);
+      const productName = item.productname;
+      const brand = item.brand;
+
+      const alertType =
+        currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
+
+      // Get any existing alert regardless of status
+      const existingAlert = await this.findExistingAnyStatusAlert(
+        productName,
+        brand,
+        branchId,
+        alertType,
+      );
+
+      if (
+        existingAlert &&
+        (existingAlert.status === AlertStatus.DISMISSED ||
+          existingAlert.status === AlertStatus.RESOLVED)
+      ) {
+        continue;
+      }
 
       if (currentStock <= minStock) {
         const shortage = minStock - currentStock;
-        const alertType = currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
-
-        // Check if alert already exists
-        const existingAlert = await this.findExistingAlert(
-          item.productname,
-          item.brand,
-          branchId,
-          alertType,
-        );
 
         if (existingAlert) {
-          // Update existing alert with new values
-          existingAlert.currentStock = currentStock;
-          existingAlert.shortage = shortage;
-          existingAlert.priority = this.calculatePriority(shortage, minStock);
-          await this.alertRepository.save(existingAlert);
+          if (existingAlert.status === AlertStatus.ACTIVE) {
+            existingAlert.currentStock = currentStock;
+            existingAlert.shortage = shortage;
+            existingAlert.priority = this.calculatePriority(shortage, minStock);
+            await this.alertRepository.save(existingAlert);
+          }
         } else {
-          // Create new alert
           await this.create({
-            itemName: `${item.productname} (${item.brand})`,
+            itemName: `${productName} (${brand})`,
             currentStock,
             minStock,
             shortage,
@@ -184,31 +135,47 @@ export class AlertService {
           });
         }
       } else {
-        // If stock is now above threshold, resolve any existing alerts
-        const existingAlert = await this.findExistingAlert(
-          item.productname,
-          item.brand,
-          branchId,
-          AlertType.LOW_STOCK,
-        );
         if (existingAlert && existingAlert.status === AlertStatus.ACTIVE) {
           existingAlert.status = AlertStatus.RESOLVED;
           existingAlert.resolvedDate = new Date();
           await this.alertRepository.save(existingAlert);
         }
-
-        const existingOutOfStockAlert = await this.findExistingAlert(
-          item.productname,
-          item.brand,
-          branchId,
-          AlertType.OUT_OF_STOCK,
-        );
-        if (existingOutOfStockAlert && existingOutOfStockAlert.status === AlertStatus.ACTIVE) {
-          existingOutOfStockAlert.status = AlertStatus.RESOLVED;
-          existingOutOfStockAlert.resolvedDate = new Date();
-          await this.alertRepository.save(existingOutOfStockAlert);
-        }
       }
     }
+  }
+
+  async resolve(id: number, dto: ResolveAlertDto): Promise<StockAlert> {
+    const alert = await this.findOne(id);
+    alert.status = AlertStatus.RESOLVED;
+    alert.resolvedDate = new Date();
+    if (dto.notes) alert.notes = dto.notes;
+    return this.alertRepository.save(alert);
+  }
+
+  async dismiss(id: number, dto?: DismissAlertDto): Promise<StockAlert> {
+    const alert = await this.findOne(id);
+    alert.status = AlertStatus.DISMISSED;
+    if (dto?.notes) alert.notes = dto.notes;
+    return this.alertRepository.save(alert);
+  }
+
+  async update(id: number, updateDto: UpdateAlertDto): Promise<StockAlert> {
+    const alert = await this.findOne(id);
+    Object.assign(alert, updateDto);
+    return this.alertRepository.save(alert);
+  }
+
+  async remove(id: number): Promise<void> {
+    const alert = await this.findOne(id);
+    alert.isRemoved = true;
+    await this.alertRepository.save(alert);
+  }
+
+  private calculatePriority(shortage: number, minStock: number): AlertPriority {
+    const percentage = shortage / minStock;
+    if (percentage > 0.5) return AlertPriority.CRITICAL;
+    if (percentage > 0.25) return AlertPriority.HIGH;
+    if (percentage > 0.1) return AlertPriority.MEDIUM;
+    return AlertPriority.LOW;
   }
 }

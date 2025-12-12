@@ -4,6 +4,7 @@ import { LoginDto } from './dto/login-auth.dto';
 import { RegisterDto } from './dto/register-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -25,6 +26,11 @@ export class AuthController {
   @Post("forgot-password")
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
+  }
+
+  @Post("validate-reset-token")
+  async validateResetToken(@Body() dto: ValidateResetTokenDto) {
+    return this.authService.validateResetToken(dto.token);
   }
 
   @Post("reset-password")

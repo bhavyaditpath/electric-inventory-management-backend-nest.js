@@ -83,6 +83,24 @@ export class AuthService {
     return ApiResponseUtil.success(null, "Reset email sent successfully");
   }
 
+  async validateResetToken(token: string): Promise<ApiResponse> {
+    try {
+      const payload = this.jwtService.verify(token);
+
+      const user = await this.userRepo.findOne({
+        where: { id: payload.sub }
+      });
+
+      if (!user) {
+        return ApiResponseUtil.error("Invalid token");
+      }
+
+      return ApiResponseUtil.success({ valid: true }, "Token is valid");
+    } catch (error) {
+      return ApiResponseUtil.error("Invalid or expired token");
+    }
+  }
+
   async resetPassword(dto: ResetPasswordDto): Promise<ApiResponse> {
     try {
       const payload = this.jwtService.verify(dto.token);

@@ -10,6 +10,7 @@ import { UserRole } from '../shared/enums/role.enum';
 import { RequestStatus } from '../shared/enums/request-status.enum';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { GenericRepository } from '../shared/generic-repository';
+import { AlertService } from '../alert/alert.service';
 
 @Injectable()
 export class RequestService {
@@ -18,10 +19,14 @@ export class RequestService {
   constructor(
     @InjectRepository(Request)
     private requestRepository: Repository<Request>,
+
     @InjectRepository(User)
     userRepo: Repository<User>,
+
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
+
+    private alertService: AlertService,
   ) {
     this.userRepository = new GenericRepository(userRepo);
   }
@@ -85,24 +90,25 @@ export class RequestService {
     const found = await this.findOne(id, user);
     if (!found.success) return found;
 
-    const request = found.data;
+    const request = found.data as Request;
 
     const oldStatus = request.status;
     const newStatus = dto.status;
 
+    // Permission checks
     if (newStatus) {
       if (user.role === UserRole.ADMIN) {
         if (request.adminUserId !== user.id)
           return ApiResponseUtil.error('Only assigned admin can update this request');
 
         if (![RequestStatus.ACCEPT, RequestStatus.REJECT, RequestStatus.IN_TRANSIT].includes(newStatus))
-          return ApiResponseUtil.error('Invalid status for admin');
+          return ApiResponseUtil.error('Admins can only set Accept, Reject, or InTransit');
       } else if (user.role === UserRole.BRANCH) {
         if (request.requestingUserId !== user.id)
           return ApiResponseUtil.error('Access denied');
 
         if (!(newStatus === RequestStatus.DELIVERED && oldStatus === RequestStatus.IN_TRANSIT))
-          return ApiResponseUtil.error('Branch can only mark Delivered');
+          return ApiResponseUtil.error('Branch can only mark InTransit → Delivered');
       }
 
       const transitionCheck = await this.validateStatusTransition(oldStatus, newStatus, request);
@@ -113,10 +119,24 @@ export class RequestService {
     Object.assign(request, dto);
     const updated = await this.requestRepository.save(request);
 
+    // FIFO deduction WHEN ACCEPTED
     if (newStatus === RequestStatus.ACCEPT && oldStatus !== RequestStatus.ACCEPT) {
       await this.deductStockFIFO(request);
+
+      // After FIFO deduction, regenerate alerts for admin's branch (if available)
+      const adminBranchId = request.adminUser?.branchId ?? request.purchase?.branchId;
+      if (adminBranchId && Number(adminBranchId) > 0) {
+        try {
+          await this.alertService.generateAlertsForBranch(Number(adminBranchId));
+        } catch (err) {
+          console.error('Failed to regenerate alerts after FIFO:', err);
+        }
+      } else {
+        console.warn('Admin branchId missing; skipping alert regeneration for request id:', request.id);
+      }
     }
 
+    // Delivery: give stock to branch (keeps previous behavior)
     if (newStatus === RequestStatus.DELIVERED && oldStatus !== RequestStatus.DELIVERED) {
       await this.handleDelivery(request);
     }
@@ -124,6 +144,7 @@ export class RequestService {
     return ApiResponseUtil.success(updated, 'Request updated successfully');
   }
 
+  // VALIDATIONS -------------------------------
   private async validateStatusTransition(
     oldStatus: RequestStatus,
     newStatus: RequestStatus,
@@ -152,7 +173,7 @@ export class RequestService {
     const result = await this.purchaseRepository
       .createQueryBuilder('p')
       .select('SUM(p.quantity)', 'total')
-      .where('p.userId = :u AND p.productName = :p AND p.isRemoved = false', {
+      .where('p.userId = :u AND LOWER(p.productName) = LOWER(:p) AND p.isRemoved = false', {
         u: request.adminUserId,
         p: request.purchase.productName,
       })
@@ -160,7 +181,7 @@ export class RequestService {
 
     const available = Number(result?.total || 0);
     if (available < request.quantityRequested)
-      return ApiResponseUtil.error(`Not enough stock. Available: ${available}`);
+      return ApiResponseUtil.error(`Not enough stock. Available: ${available}, Requested: ${request.quantityRequested}`);
 
     return null;
   }
@@ -168,12 +189,12 @@ export class RequestService {
   private async deductStockFIFO(request: Request) {
     let needed = Number(request.quantityRequested);
 
+    // Fetch all purchases for this admin & product (FIFO = oldest first).
+    // Use case-insensitive product match to avoid missing rows due to casing differences.
     const purchases = await this.purchaseRepository
       .createQueryBuilder('p')
       .where('p.userId = :uid', { uid: request.adminUserId })
-      .andWhere('LOWER(p.productName) = LOWER(:name)', {
-        name: request.purchase.productName,
-      })
+      .andWhere('LOWER(p.productName) = LOWER(:name)', { name: request.purchase.productName })
       .andWhere('p.isRemoved = false')
       .orderBy('p.createdAt', 'ASC')
       .getMany();
@@ -194,17 +215,17 @@ export class RequestService {
         p.quantity = 0;
         p.totalPrice = 0;
         p.isRemoved = true;
+
         await this.purchaseRepository.save(p);
       }
     }
 
     if (needed > 0) {
-      throw new Error(
-        `FIFO logic error: validateStockAvailability passed but available rows did not match.`
-      );
+      // This should not happen because validateStockAvailability ran earlier.
+      // Still, provide a clear error if it does.
+      throw new Error('FIFO mismatch: insufficient stock after validation.');
     }
   }
-
 
   // DELIVERED: BRANCH GETS STOCK -----------------
   private async handleDelivery(request: Request) {
@@ -248,9 +269,9 @@ export class RequestService {
           role: UserRole.ADMIN,
           id: user
             ? Raw(alias => `${alias} IN (:...ids) AND ${alias} != :uid`, {
-              ids,
-              uid: user.id,
-            })
+                ids,
+                uid: user.id,
+              })
             : In(ids),
         },
         select: ['id', 'username'],

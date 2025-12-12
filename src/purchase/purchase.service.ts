@@ -7,7 +7,6 @@ import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
 import { AlertService } from '../alert/alert.service';
 import { Request } from '../request/entities/request.entity';
-import { RequestStatus } from '../shared/enums/request-status.enum';
 
 @Injectable()
 export class PurchaseService {
@@ -34,11 +33,6 @@ export class PurchaseService {
   async create(createPurchaseDto: CreatePurchaseDto, userId: number) {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-
-    await this.validateUniqueProductName(
-      createPurchaseDto.productName,
-      user.branchId,
-    );
 
     const purchase = this.purchaseRepository.create({
       ...createPurchaseDto,
@@ -100,12 +94,6 @@ export class PurchaseService {
   async update(id: number, updatePurchaseDto: UpdatePurchaseDto) {
     const purchase = await this.findOne(id);
 
-    await this.validateUniqueProductName(
-      updatePurchaseDto.productName ?? purchase.productName,
-      purchase.branchId!,
-      id
-    );
-
     Object.assign(purchase, updatePurchaseDto);
     const updated = await this.purchaseRepository.save(purchase);
     if (purchase.branchId) {
@@ -120,28 +108,4 @@ export class PurchaseService {
     purchase.isRemoved = true;
     return this.purchaseRepository.save(purchase);
   }
-
-  async validateUniqueProductName(
-    productName: string,
-    branchId: number,
-    excludeId?: number,
-  ) {
-    const query = this.purchaseRepository
-      .createQueryBuilder('purchase')
-      .where('purchase.productName = :productName', { productName })
-      .andWhere('purchase.branchId = :branchId', { branchId })
-      .andWhere('purchase.isRemoved = false');
-
-    // if (excludeId) {
-    //   query.andWhere('purchase.id != :excludeId', { excludeId });
-    // }
-
-    const existing = await query.getOne();
-    if (existing) {
-      throw new Error(
-        `Product "${productName}" already exists in this branch.`
-      );
-    }
-  }
-
 }

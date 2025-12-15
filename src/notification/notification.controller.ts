@@ -22,10 +22,10 @@ export class NotificationController {
   }
 
   @Get('latest')
-  async getLatest(@Query('limit') limit?: string) {
+  async getLatest(@Req() req, @Query('limit') limit?: string) {
     try {
       const limitNum = limit ? +limit : 5;
-      const result = await this.notificationService.findLatest(limitNum);
+      const result = await this.notificationService.findLatest(limitNum, req.user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch latest notifications');
@@ -34,6 +34,7 @@ export class NotificationController {
 
   @Get()
   async findAll(
+    @Req() req,
     @Query('type') type?: NotificationType,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -41,7 +42,7 @@ export class NotificationController {
     try {
       const pageNum = page ? +page : 1;
       const limitNum = limit ? +limit : 10;
-      const result = await this.notificationService.findAll(type, pageNum, limitNum);
+      const result = await this.notificationService.findAllWithReadStatus(type, pageNum, limitNum, req.user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch notifications');
@@ -51,7 +52,7 @@ export class NotificationController {
   @Get('unread-count')
   async getUnreadCount(@Req() req) {
     try {
-      const result = await this.notificationService.getUnreadCount( req.user.id);
+      const result = await this.notificationService.getUnreadCount(req.user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch unread count');
@@ -113,7 +114,7 @@ export class NotificationController {
   @Patch('mark-all-read')
   async markAllAsRead(@Req() req) {
     try {
-      const result = await this.notificationService.markAllAsRead( req.user.id);
+      const result = await this.notificationService.markAllAsRead(req.user.id);
       return ApiResponseUtil.success(result, 'All notifications marked as read');
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to mark all notifications as read');

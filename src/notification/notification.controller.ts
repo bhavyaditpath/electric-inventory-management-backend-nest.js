@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Req } from '@nestjs/common';
 import { NotificationService } from './notification.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
@@ -9,7 +9,7 @@ import { ApiResponseUtil } from '../shared/api-response';
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(private readonly notificationService: NotificationService) { }
 
   @Post()
   async create(@Body() createNotificationDto: CreateNotificationDto) {
@@ -49,9 +49,9 @@ export class NotificationController {
   }
 
   @Get('unread-count')
-  async getUnreadCount() {
+  async getUnreadCount(@Req() req) {
     try {
-      const result = await this.notificationService.getUnreadCount();
+      const result = await this.notificationService.getUnreadCount( req.user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch unread count');
@@ -101,9 +101,9 @@ export class NotificationController {
   }
 
   @Patch(':id/read')
-  async markAsRead(@Param('id') id: string) {
+  async markAsRead(@Param('id') id: string, @Req() req) {
     try {
-      const result = await this.notificationService.markAsRead(+id);
+      const result = await this.notificationService.markAsRead(+id, req.user.id);
       return ApiResponseUtil.success(result, 'Notification marked as read');
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to mark notification as read');
@@ -111,9 +111,9 @@ export class NotificationController {
   }
 
   @Patch('mark-all-read')
-  async markAllAsRead() {
+  async markAllAsRead(@Req() req) {
     try {
-      const result = await this.notificationService.markAllAsRead();
+      const result = await this.notificationService.markAllAsRead( req.user.id);
       return ApiResponseUtil.success(result, 'All notifications marked as read');
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to mark all notifications as read');

@@ -18,9 +18,6 @@ export class Notification extends BaseEntityClass {
   })
   type: NotificationType;
 
-  @Column({ type: 'boolean', default: false })
-  read: boolean;
-
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'userId' })
   user: User;

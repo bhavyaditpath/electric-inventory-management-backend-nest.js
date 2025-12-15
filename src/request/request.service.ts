@@ -51,8 +51,8 @@ export class RequestService {
     });
 
     const saved = await this.requestRepository.save(request);
-    // Create notification for new request
-    await this.createRequestCreationNotification(saved, requestingUser);
+    // Create notifications for new request
+    await this.createRequestCreationNotifications(saved, requestingUser);
 
     return ApiResponseUtil.success(saved, 'Request created successfully');
   }
@@ -381,20 +381,31 @@ export class RequestService {
     }
   }
 
-  private async createRequestCreationNotification(request: Request, requestingUser: User): Promise<void> {
+  private async createRequestCreationNotifications(request: Request, requestingUser: User): Promise<void> {
     try {
-      const title = 'New Request Submitted';
-      const message = `${requestingUser.username} has submitted a request for ${request.purchase.productName} (${request.quantityRequested} units).`;
+      // Create personal confirmation for the user who submitted the request
+      const userTitle = 'Request Submitted Successfully';
+      const userMessage = `Your request for ${request.purchase.productName} (${request.quantityRequested} units) has been submitted successfully and is pending approval.`;
 
-      // Notify the admin user
       await this.notificationService.create({
-        title,
-        message,
+        title: userTitle,
+        message: userMessage,
+        type: NotificationType.USER,
+        userId: requestingUser.id,
+      });
+
+      // Create notification for the admin user
+      const adminTitle = 'New Request Submitted';
+      const adminMessage = `${requestingUser.username} has submitted a request for ${request.purchase.productName} (${request.quantityRequested} units).`;
+
+      await this.notificationService.create({
+        title: adminTitle,
+        message: adminMessage,
         type: NotificationType.USER,
         userId: request.adminUserId,
       });
     } catch (error) {
-      console.error('Failed to create request creation notification:', error);
+      console.error('Failed to create request creation notifications:', error);
     }
   }
 }

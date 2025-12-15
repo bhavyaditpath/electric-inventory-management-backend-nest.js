@@ -30,8 +30,8 @@ export class AlertService {
 
     const alert = this.alertRepository.create(createAlertDto);
     const savedAlert = await this.alertRepository.save(alert);
-    // Create notification for the alert
-    await this.createAlertNotification(savedAlert);
+    // Create notifications for the alert
+    await this.createAlertNotifications(savedAlert);
     return savedAlert;
   }
 
@@ -249,19 +249,23 @@ export class AlertService {
   });
 }
 
-  private async createAlertNotification(alert: StockAlert): Promise<void> {
+  private async createAlertNotifications(alert: StockAlert): Promise<void> {
     try {
       const title = alert.alertType === AlertType.OUT_OF_STOCK ? 'Out of Stock Alert' : 'Low Stock Alert';
       const message = `${alert.itemName} - Current stock: ${alert.currentStock}, Shortage: ${alert.shortage}`;
 
+      // Create branch-wide notification for all users in the branch
       await this.notificationService.create({
         title,
         message,
         type: NotificationType.BRANCH,
         branchId: alert.branchId,
       });
+
+      // Note: For alerts, we don't create personal USER notifications since they are system-generated
+      // and not triggered by a specific user action
     } catch (error) {
-      console.error('Failed to create alert notification:', error);
+      console.error('Failed to create alert notifications:', error);
     }
   }
 

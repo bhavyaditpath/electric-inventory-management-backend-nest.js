@@ -53,8 +53,8 @@ export class PurchaseService {
     if (user.branchId) {
       await this.alertService.generateAlertsForBranch(user.branchId);
     }
-    // Create notification for new purchase
-    await this.createPurchaseNotification(savedPurchase, user);
+    // Create notifications for new purchase
+    await this.createPurchaseNotifications(savedPurchase, user);
 
     return savedPurchase;
   }
@@ -114,19 +114,31 @@ export class PurchaseService {
     return this.purchaseRepository.save(purchase);
   }
 
-  private async createPurchaseNotification(purchase: Purchase, user: User): Promise<void> {
+  private async createPurchaseNotifications(purchase: Purchase, user: User): Promise<void> {
     try {
       const title = 'New Purchase Added';
       const message = `${purchase.productName} (${purchase.brand}) - Quantity: ${purchase.quantity}, Price: ₹${purchase.pricePerUnit}`;
 
+      // Create branch-wide notification for all users in the branch
       await this.notificationService.create({
         title,
         message,
         type: NotificationType.BRANCH,
         branchId: user.branchId,
       });
+
+      // Create personal notification for the user who made the purchase
+      const personalTitle = 'Purchase Recorded';
+      const personalMessage = `Your purchase of ${purchase.productName} (${purchase.brand}) - Quantity: ${purchase.quantity} has been recorded successfully.`;
+
+      await this.notificationService.create({
+        title: personalTitle,
+        message: personalMessage,
+        type: NotificationType.USER,
+        userId: user.id,
+      });
     } catch (error) {
-      console.error('Failed to create purchase notification:', error);
+      console.error('Failed to create purchase notifications:', error);
     }
   }
 }

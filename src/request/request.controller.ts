@@ -4,6 +4,7 @@ import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../user/entities/user.entity';
+import { PaginationQueryDto } from '../shared/dto/pagination-query.dto';
 
 @Controller('request')
 @UseGuards(JwtAuthGuard)
@@ -21,8 +22,8 @@ export class RequestController {
   }
 
   @Get()
-  findAll(@Request() req) {
-    return this.requestService.findAll(req.user as User);
+  findAll(@Request() req, @Query() query: PaginationQueryDto) {
+    return this.requestService.findAll(req.user as User, query);
   }
 
   @Get(':id')

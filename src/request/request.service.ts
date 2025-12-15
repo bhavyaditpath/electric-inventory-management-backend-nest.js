@@ -13,6 +13,7 @@ import { GenericRepository } from '../shared/generic-repository';
 import { AlertService } from '../alert/alert.service';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '../shared/enums/notification-type.enum';
+import { PaginationQueryDto } from '../shared/dto/pagination-query.dto';
 
 @Injectable()
 export class RequestService {
@@ -57,7 +58,10 @@ export class RequestService {
     return ApiResponseUtil.success(saved, 'Request created successfully');
   }
 
-  async findAll(user: User): Promise<ApiResponse> {
+  async findAll(user: User, params?: PaginationQueryDto): Promise<ApiResponse> {
+    const page = params?.page || 1;
+    const pageSize = params?.pageSize || 10;
+
     const query = this.requestRepository
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.requestingUser', 'requestingUser')
@@ -71,8 +75,20 @@ export class RequestService {
       query.andWhere('request.requestingUserId = :id', { id: user.id });
     }
 
-    const list = await query.getMany();
-    return ApiResponseUtil.success(list);
+    const offset = (page - 1) * pageSize;
+    query.skip(offset).take(pageSize);
+
+    const [items, total] = await query.getManyAndCount();
+
+    const result = {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+
+    return ApiResponseUtil.success(result);
   }
 
   async findOne(id: number, user: User): Promise<ApiResponse> {

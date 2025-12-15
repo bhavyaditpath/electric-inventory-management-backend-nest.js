@@ -355,9 +355,13 @@ export class ReportsService {
       try {
         if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
           await this.generateAndSaveReport(preference.reportType, preference.userId);
+          console.log(`Generated ${preference.reportType} report for user ${preference.userId}`);
+          await this.createReportNotification(preference, preference.reportType, 'saved');
         } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
           const reportBuffer = await this.generateReportBuffer(preference.reportType, preference.userId);
           await this.sendReportEmail(preference.user.email || preference.user.username, preference.reportType, reportBuffer, preference.userId);
+          console.log(`Sent ${preference.reportType} report via email to user ${preference.userId}`);
+          await this.createReportNotification(preference, preference.reportType, 'sent');
         }
       } catch (error) {
         console.error(`Failed to generate report for user ${preference.userId}:`, error);

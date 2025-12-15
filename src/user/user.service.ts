@@ -7,6 +7,8 @@ import { UserDto } from './dto/user.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { BranchService } from '../branch/branch.service';
 import { GenericRepository } from '../shared/generic-repository';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class UserService {
@@ -16,6 +18,7 @@ export class UserService {
     @InjectRepository(User)
     repo: Repository<User>,
     private readonly branchService: BranchService,
+    private readonly notificationService: NotificationService,
   ) {
     this.userRepository = new GenericRepository(repo);
   }
@@ -51,6 +54,8 @@ export class UserService {
       branchId: branch.id,
       isRemoved: false,
     });
+
+    await this.createUserRegistrationNotification(user, branch.name);
 
     return ApiResponseUtil.success(user, 'User created successfully');
   }
@@ -177,5 +182,21 @@ export class UserService {
 
     await this.userRepository.softDelete(id);
     return ApiResponseUtil.success(null, 'User deleted successfully');
+  }
+
+  private async createUserRegistrationNotification(user: User, branchName: string): Promise<void> {
+    try {
+      const title = 'Welcome to Electric Inventory';
+      const message = `New user ${user.username} has been registered in branch ${branchName}.`;
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.BRANCH,
+        branchId: user.branchId,
+      });
+    } catch (error) {
+      console.error('Failed to create user registration notification:', error);
+    }
   }
 }

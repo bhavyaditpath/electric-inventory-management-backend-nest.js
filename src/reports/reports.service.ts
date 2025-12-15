@@ -14,6 +14,8 @@ import { DeliveryMethod } from 'src/shared/enums/delivery-method.enum';
 import { EmailService } from '../auth/email.service';
 import { renderTemplate } from 'src/utils/template-loader';
 import { ApiResponseUtil } from '../shared/api-response';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class ReportsService {
@@ -23,6 +25,7 @@ export class ReportsService {
     @InjectRepository(ReportPreference)
     private reportPreferenceRepository: Repository<ReportPreference>,
     private emailService: EmailService,
+    private notificationService: NotificationService,
   ) { }
 
   async getDailyReport(userId?: number) {
@@ -407,14 +410,36 @@ export class ReportsService {
         if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
           await this.generateAndSaveReport(reportType, preference.userId);
           console.log(`Generated ${reportType} report for user ${preference.userId}`);
+          await this.createReportNotification(preference, reportType, 'saved');
         } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
           const reportBuffer = await this.generateReportBuffer(reportType, preference.userId);
           await this.sendReportEmail(preference.user.email, reportType, reportBuffer, preference.userId);
           console.log(`Sent ${reportType} report via email to user ${preference.userId}`);
+          await this.createReportNotification(preference, reportType, 'sent');
         }
       } catch (error) {
         console.error(`Failed to generate ${reportType} report for user ${preference.userId}:`, error);
       }
+    }
+  }
+
+  private async createReportNotification(
+    preference: ReportPreference,
+    reportType: ReportType,
+    action: 'saved' | 'sent'
+  ): Promise<void> {
+    try {
+      const title = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report ${action === 'sent' ? 'Sent' : 'Generated'}`;
+      const message = `Your ${reportType.toLowerCase()} report has been ${action === 'sent' ? 'sent via email' : 'saved locally'}.`;
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.USER,
+        userId: preference.userId,
+      });
+    } catch (error) {
+      console.error('Failed to create report notification:', error);
     }
   }
 }

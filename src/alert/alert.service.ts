@@ -9,12 +9,15 @@ import { DismissAlertDto } from './dto/dismiss-alert.dto';
 import { AlertStatus } from '../shared/enums/alert-status.enum';
 import { AlertPriority } from '../shared/enums/alert-priority.enum';
 import { AlertType } from '../shared/enums/alert-type.enum';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class AlertService {
   constructor(
     @InjectRepository(StockAlert)
     private alertRepository: Repository<StockAlert>,
+    private notificationService: NotificationService,
   ) { }
 
   async create(createAlertDto: CreateAlertDto): Promise<StockAlert> {
@@ -26,7 +29,10 @@ export class AlertService {
     }
 
     const alert = this.alertRepository.create(createAlertDto);
-    return this.alertRepository.save(alert);
+    const savedAlert = await this.alertRepository.save(alert);
+    // Create notification for the alert
+    await this.createAlertNotification(savedAlert);
+    return savedAlert;
   }
 
   async findByBranch(
@@ -149,14 +155,20 @@ export class AlertService {
     alert.status = AlertStatus.RESOLVED;
     alert.resolvedDate = new Date();
     if (dto.notes) alert.notes = dto.notes;
-    return this.alertRepository.save(alert);
+    const resolvedAlert = await this.alertRepository.save(alert);
+    // Create notification for alert resolution
+    await this.createAlertStatusNotification(resolvedAlert, 'resolved');
+    return resolvedAlert;
   }
 
   async dismiss(id: number, dto?: DismissAlertDto): Promise<StockAlert> {
     const alert = await this.findOne(id);
     alert.status = AlertStatus.DISMISSED;
     if (dto?.notes) alert.notes = dto.notes;
-    return this.alertRepository.save(alert);
+    const dismissedAlert = await this.alertRepository.save(alert);
+    // Create notification for alert dismissal
+    await this.createAlertStatusNotification(dismissedAlert, 'dismissed');
+    return dismissedAlert;
   }
 
   async update(id: number, updateDto: UpdateAlertDto): Promise<StockAlert> {
@@ -237,4 +249,36 @@ export class AlertService {
   });
 }
 
+  private async createAlertNotification(alert: StockAlert): Promise<void> {
+    try {
+      const title = alert.alertType === AlertType.OUT_OF_STOCK ? 'Out of Stock Alert' : 'Low Stock Alert';
+      const message = `${alert.itemName} - Current stock: ${alert.currentStock}, Shortage: ${alert.shortage}`;
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.BRANCH,
+        branchId: alert.branchId,
+      });
+    } catch (error) {
+      console.error('Failed to create alert notification:', error);
+    }
+  }
+
+  private async createAlertStatusNotification(alert: StockAlert, action: 'resolved' | 'dismissed'): Promise<void> {
+    try {
+      const title = action === 'resolved' ? 'Alert Resolved' : 'Alert Dismissed';
+      const actionText = action === 'resolved' ? 'resolved' : 'dismissed';
+      const message = `${alert.itemName} alert has been ${actionText}.`;
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.BRANCH,
+        branchId: alert.branchId,
+      });
+    } catch (error) {
+      console.error(`Failed to create alert ${action} notification:`, error);
+    }
+  }
 }

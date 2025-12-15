@@ -5,6 +5,8 @@ import { Branch } from './entities/branch.entity';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { GenericRepository } from '../shared/generic-repository';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class BranchService {
@@ -13,6 +15,7 @@ export class BranchService {
   constructor(
     @InjectRepository(Branch)
     repo: Repository<Branch>,
+    private readonly notificationService: NotificationService,
   ) {
     this.branchRepository = new GenericRepository(repo);
   }
@@ -26,7 +29,11 @@ export class BranchService {
       throw new Error('Branch name already exists');
     }
 
-    return this.branchRepository.create(createBranchDto);
+    const branch = await this.branchRepository.create(createBranchDto);
+    // Create notification for new branch
+    await this.createBranchCreationNotification(branch);
+
+    return branch;
   }
 
   async findAll(page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'ASC' | 'DESC') {
@@ -106,6 +113,24 @@ export class BranchService {
       await this.branchRepository.softDelete(id);
     }
     return branch;
+  }
+
+  private async createBranchCreationNotification(branch: Branch): Promise<void> {
+    try {
+      const title = 'New Branch Created';
+      const message = `A new branch "${branch.name}" has been created at ${branch.address}.`;
+
+      // Since this is a system-wide event, we might want to notify all admin users
+      // For now, we'll create a general notification that can be seen by all users
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.BRANCH,
+        branchId: branch.id,
+      });
+    } catch (error) {
+      console.error('Failed to create branch creation notification:', error);
+    }
   }
 }
 

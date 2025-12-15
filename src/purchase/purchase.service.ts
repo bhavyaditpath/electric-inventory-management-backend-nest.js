@@ -7,6 +7,8 @@ import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums/role.enum';
 import { AlertService } from '../alert/alert.service';
 import { Request } from '../request/entities/request.entity';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class PurchaseService {
@@ -18,6 +20,7 @@ export class PurchaseService {
     @InjectRepository(Request)
     private requestRepository: Repository<Request>,
     private alertService: AlertService,
+    private notificationService: NotificationService,
   ) { }
 
   async findDuplicate(productName: string, userId: number) {
@@ -50,6 +53,8 @@ export class PurchaseService {
     if (user.branchId) {
       await this.alertService.generateAlertsForBranch(user.branchId);
     }
+    // Create notification for new purchase
+    await this.createPurchaseNotification(savedPurchase, user);
 
     return savedPurchase;
   }
@@ -107,5 +112,21 @@ export class PurchaseService {
     const purchase = await this.findOne(id);
     purchase.isRemoved = true;
     return this.purchaseRepository.save(purchase);
+  }
+
+  private async createPurchaseNotification(purchase: Purchase, user: User): Promise<void> {
+    try {
+      const title = 'New Purchase Added';
+      const message = `${purchase.productName} (${purchase.brand}) - Quantity: ${purchase.quantity}, Price: ₹${purchase.pricePerUnit}`;
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.BRANCH,
+        branchId: user.branchId,
+      });
+    } catch (error) {
+      console.error('Failed to create purchase notification:', error);
+    }
   }
 }

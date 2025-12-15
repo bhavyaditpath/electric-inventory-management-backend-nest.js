@@ -11,6 +11,8 @@ import { RequestStatus } from '../shared/enums/request-status.enum';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { GenericRepository } from '../shared/generic-repository';
 import { AlertService } from '../alert/alert.service';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class RequestService {
@@ -27,6 +29,7 @@ export class RequestService {
     private purchaseRepository: Repository<Purchase>,
 
     private alertService: AlertService,
+    private notificationService: NotificationService,
   ) {
     this.userRepository = new GenericRepository(userRepo);
   }
@@ -48,6 +51,9 @@ export class RequestService {
     });
 
     const saved = await this.requestRepository.save(request);
+    // Create notification for new request
+    await this.createRequestCreationNotification(saved, requestingUser);
+
     return ApiResponseUtil.success(saved, 'Request created successfully');
   }
 
@@ -118,6 +124,11 @@ export class RequestService {
     // Apply update
     Object.assign(request, dto);
     const updated = await this.requestRepository.save(request);
+
+    // Create notification for status change
+    if (oldStatus && newStatus && oldStatus !== newStatus) {
+      await this.createRequestStatusNotification(request, oldStatus, newStatus, user);
+    }
 
     // FIFO deduction WHEN ACCEPTED
     if (newStatus === RequestStatus.ACCEPT && oldStatus !== RequestStatus.ACCEPT) {
@@ -310,5 +321,80 @@ export class RequestService {
   async remove(id: number): Promise<ApiResponse> {
     await this.requestRepository.update(id, { isRemoved: true });
     return ApiResponseUtil.success(null, 'Request removed successfully');
+  }
+
+  private async createRequestStatusNotification(
+    request: Request,
+    oldStatus: RequestStatus,
+    newStatus: RequestStatus,
+    user: User
+  ): Promise<void> {
+    try {
+      let title = '';
+      let message = '';
+      let notificationType = NotificationType.USER;
+      let targetUserId: number | undefined;
+      let targetBranchId: number | undefined;
+
+      switch (newStatus) {
+        case RequestStatus.ACCEPT:
+          title = 'Request Accepted';
+          message = `Your request for ${request.purchase.productName} (${request.quantityRequested} units) has been accepted.`;
+          notificationType = NotificationType.USER;
+          targetUserId = request.requestingUserId;
+          break;
+
+        case RequestStatus.REJECT:
+          title = 'Request Rejected';
+          message = `Your request for ${request.purchase.productName} (${request.quantityRequested} units) has been rejected.`;
+          notificationType = NotificationType.USER;
+          targetUserId = request.requestingUserId;
+          break;
+
+        case RequestStatus.IN_TRANSIT:
+          title = 'Request In Transit';
+          message = `Your request for ${request.purchase.productName} (${request.quantityRequested} units) is now in transit.`;
+          notificationType = NotificationType.USER;
+          targetUserId = request.requestingUserId;
+          break;
+
+        case RequestStatus.DELIVERED:
+          title = 'Request Delivered';
+          message = `Your request for ${request.purchase.productName} (${request.quantityRequested} units) has been delivered.`;
+          notificationType = NotificationType.USER;
+          targetUserId = request.requestingUserId;
+          break;
+
+        default:
+          return; // No notification for other status changes
+      }
+
+      await this.notificationService.create({
+        title,
+        message,
+        type: notificationType,
+        userId: targetUserId,
+        branchId: targetBranchId,
+      });
+    } catch (error) {
+      console.error('Failed to create request status notification:', error);
+    }
+  }
+
+  private async createRequestCreationNotification(request: Request, requestingUser: User): Promise<void> {
+    try {
+      const title = 'New Request Submitted';
+      const message = `${requestingUser.username} has submitted a request for ${request.purchase.productName} (${request.quantityRequested} units).`;
+
+      // Notify the admin user
+      await this.notificationService.create({
+        title,
+        message,
+        type: NotificationType.USER,
+        userId: request.adminUserId,
+      });
+    } catch (error) {
+      console.error('Failed to create request creation notification:', error);
+    }
   }
 }

@@ -4,11 +4,11 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { HashUtil } from '../utils/hash.util';
 import { UserDto } from './dto/user.dto';
-import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { BranchService } from '../branch/branch.service';
 import { GenericRepository } from '../shared/generic-repository';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '../shared/enums/notification-type.enum';
+import { ApiResponse, ApiResponseUtil } from 'src/shared/api-response';
 
 @Injectable()
 export class UserService {
@@ -60,49 +60,62 @@ export class UserService {
     return ApiResponseUtil.success(user, 'User created successfully');
   }
 
-  async findAll(page?: number, pageSize?: number, search?: string): Promise<ApiResponse> {
+  async findAll(page?: number, pageSize?: number, search?: string, sortBy?: string, sortOrder?: 'ASC' | 'DESC') {
     if (page && pageSize) {
-      // Return paginated result
-      const paginatedResult = await this.userRepository
-        .withNoDeletedRecord()
-        .paginate(page, pageSize);
-      
-      // Transform the data to include only branch name instead of full branch object
-      const transformedUsers = paginatedResult.items.map(user => ({
-        ...user,
-        branch: user.branch ? user.branch.name : null,
-        role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
-      }));
-      
-      const transformedResult = {
-        ...paginatedResult,
-        items: transformedUsers
-      };
-      
-      return ApiResponseUtil.success(transformedResult, 'Users retrieved successfully');
-    } else {
-      // Build search options for non-paginated request
-      let options: any = {};
-      
-      if (search) {
-        // Simple search by username for now
-        options.where = { username: search };
-      }
-      
-      // Return all users (backward compatibility)
-      const users = await this.userRepository
-        .withNoDeletedRecord()
-        .findAll(options);
-      
-      // Transform the data to include only branch name instead of full branch object
-      const transformedUsers = users.map(user => ({
-        ...user,
-        branch: user.branch ? user.branch.name : null,
-        role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
-      }));
-      
-      return ApiResponseUtil.success(transformedUsers, 'Users retrieved successfully');
+      return this.searchUsersWithPagination(page, pageSize, search, sortBy, sortOrder);
     }
+
+    return this.userRepository.findAll();
+  }
+
+  private async searchUsersWithPagination(
+    page: number,
+    pageSize: number,
+    search?: string,
+    sortBy?: string,
+    sortOrder?: 'ASC' | 'DESC'
+  ): Promise<ApiResponse> {
+    const queryBuilder = this.userRepository['repo']
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.branch', 'branch');
+
+    // Add search conditions if search term is provided
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      queryBuilder.andWhere(
+        '(user.username LIKE :searchTerm OR branch.name LIKE :searchTerm)',
+        { searchTerm }
+      );
+    }
+
+    // Add dynamic sorting
+    const validSortFields = ['username', 'role', 'branchId', 'id', 'createdAt', 'updatedAt'];
+    const sortField = sortBy && validSortFields.includes(sortBy) ? sortBy : 'username';
+    const sortDirection = sortOrder === 'DESC' ? 'DESC' : 'ASC';
+
+    queryBuilder.orderBy(`user.${sortField}`, sortDirection);
+
+    // Calculate pagination
+    const offset = (page - 1) * pageSize;
+    queryBuilder.skip(offset).take(pageSize);
+
+    // Execute query
+    const [items, total] = await queryBuilder.getManyAndCount();
+
+    // Transform the data to include only branch name instead of full branch object
+    const transformedUsers = items.map(user => ({
+      ...user,
+      branch: user.branch ? user.branch.name : null,
+      role: user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
+    }));
+
+    return ApiResponseUtil.success({
+      items: transformedUsers,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
   }
 
   async findOne(id: number): Promise<ApiResponse> {
@@ -181,7 +194,7 @@ export class UserService {
     }
 
     await this.userRepository.softDelete(id);
-    return ApiResponseUtil.success(null, 'User deleted successfully');
+    return ApiResponseUtil.success(user, 'User deleted successfully');
   }
 
   private async createUserRegistrationNotification(user: User, branchName: string): Promise<void> {

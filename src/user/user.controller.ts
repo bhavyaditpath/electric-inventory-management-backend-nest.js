@@ -15,8 +15,8 @@ export class UserController {
 
   @Get()
   async findAll(@Query() paginationQuery: PaginationQueryDto) {
-    const { page, pageSize, search } = paginationQuery;
-    return this.userService.findAll(page, pageSize, search);
+    const { page, pageSize, search, sortBy, sortOrder } = paginationQuery;
+    return this.userService.findAll(page, pageSize, search, sortBy, sortOrder);
   }
 
   @Get(':id')

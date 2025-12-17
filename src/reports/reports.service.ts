@@ -137,6 +137,7 @@ export class ReportsService {
       where: {
         userId,
         reportType: createDto.reportType,
+        deliveryMethod: createDto.deliveryMethod,
         isRemoved: false
       }
     });

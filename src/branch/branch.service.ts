@@ -52,8 +52,7 @@ export class BranchService {
     sortOrder?: 'ASC' | 'DESC'
   ) {
     const queryBuilder = this.branchRepository['repo']
-      .createQueryBuilder('branch')
-      .where('branch.isRemoved = :isRemoved', { isRemoved: false });
+      .createQueryBuilder('branch');
 
     // Add search conditions if search term is provided
     if (search && search.trim()) {

@@ -190,11 +190,9 @@ export class AuthService {
       branchId: user.branchId
     };
 
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
 
-    // For refresh token, use a different secret or longer expiry
-    // For now, use same token as refresh (not ideal, but works)
-    const refreshToken = this.jwtService.sign({ ...payload, type: 'refresh' });
+    const refreshToken = this.jwtService.sign({ ...payload, type: 'refresh' }, { expiresIn: '7d' }); // 7 days expiry
 
     return {
       access_token: accessToken,

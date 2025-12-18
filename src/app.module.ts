@@ -15,6 +15,7 @@ import { AlertModule } from './alert/alert.module';
 import { RequestModule } from './request/request.module';
 import { ReportsModule } from './reports/reports.module';
 import { NotificationModule } from './notification/notification.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import dbConfig from './config/database.config';
 
 @Module({
@@ -35,6 +36,7 @@ import dbConfig from './config/database.config';
     RequestModule,
     ReportsModule,
     NotificationModule,
+    DashboardModule,
   ],
   controllers: [],
   providers: [SeederService],

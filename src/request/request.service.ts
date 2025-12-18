@@ -75,6 +75,26 @@ export class RequestService {
       query.andWhere('request.requestingUserId = :id', { id: user.id });
     }
 
+    // Search functionality
+    if (params?.search) {
+      const searchTerm = `%${params.search}%`;
+      query.andWhere(
+        '(CAST(request.status AS TEXT) ILIKE :search OR ' +
+        'request.notes ILIKE :search OR ' +
+        'purchase.productName ILIKE :search )',
+        { search: searchTerm }
+      );
+    }
+
+    // Sorting functionality
+    const allowedSortFields = ['createdAt', 'updatedAt', 'status', 'quantityRequested'];
+    if (params?.sortBy && allowedSortFields.includes(params.sortBy)) {
+      query.orderBy(`request.${params.sortBy}`, params.sortOrder || 'ASC');
+    } else {
+      // Default sort by createdAt DESC
+      query.orderBy('request.createdAt', 'DESC');
+    }
+
     const offset = (page - 1) * pageSize;
     query.skip(offset).take(pageSize);
 

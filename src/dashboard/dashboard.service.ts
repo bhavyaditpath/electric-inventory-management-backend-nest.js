@@ -98,35 +98,27 @@ export class DashboardService {
   }
 
   async getPendingOrders(userId: number): Promise<number> {
-    const user = await this.userRepository.findOne({ where: { id: userId, isRemoved: false } });
-    if (!user || !user.branchId) return 0;
-
-    const qb = this.requestRepository
-      .createQueryBuilder('request')
-      .leftJoin('request.requestingUser', 'user')
-      .where('request.status = :status', { status: RequestStatus.REQUEST })
-      .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('user.branchId = :branchId', { branchId: user.branchId });
-
-    return await qb.getCount();
+    return await this.requestRepository.count({
+      where: {
+        status: RequestStatus.REQUEST,
+        isRemoved: false,
+        requestingUserId: userId,
+      },
+    });
   }
 
   async getTodaysbuys(userId: number): Promise<number> {
-    const user = await this.userRepository.findOne({ where: { id: userId, isRemoved: false } });
-    if (!user || !user.branchId) return 0;
-
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
 
     const qb = this.requestRepository
       .createQueryBuilder('request')
-      .leftJoin('request.requestingUser', 'user')
       .leftJoin('request.purchase', 'purchase')
       .select('SUM(request.quantityRequested * purchase.pricePerUnit)', 'total')
       .where('request.status = :status', { status: RequestStatus.DELIVERED })
       .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('user.branchId = :branchId', { branchId: user.branchId })
+      .andWhere('request.requestingUserId = :userId', { userId })
       .andWhere('request.createdAt >= :start', { start: startOfDay })
       .andWhere('request.createdAt <= :end', { end: endOfDay });
 

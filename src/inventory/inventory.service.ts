@@ -66,14 +66,7 @@ export class InventoryService {
       });
     }
 
-    const validSort = ['productName', 'brand', 'quantity', 'unit', 'lowStockThreshold', 'createdAt'];
-    const sortField = validSort.includes(sortBy || '') ? sortBy : 'productName';
-    qb.orderBy(`purchase.${sortField}`, sortOrder);
-
-    const offset = (page - 1) * pageSize;
-    qb.skip(offset).take(pageSize);
-
-    const [rows, total] = await qb.getManyAndCount();
+    const rows = await qb.getMany();
 
     const inventoryMap = new Map();
 
@@ -89,7 +82,7 @@ export class InventoryService {
           unit: r.unit,
           lowStockThreshold: r.lowStockThreshold,
           branchId: r.branchId,
-          branch: r.branch ? { id: r.branch.id, name: r.branch.name } : null,  // ✅ FIXED
+          branch: r.branch ? { id: r.branch.id, name: r.branch.name } : null,
           lastPurchaseDate: r.createdAt,
           totalPurchased: 0,
         });
@@ -104,8 +97,33 @@ export class InventoryService {
       }
     }
 
+    let items = Array.from(inventoryMap.values());
+
+    // Sort the aggregated items
+    const validSort = ['productName', 'brand', 'quantity', 'unit', 'lowStockThreshold', 'createdAt'];
+    const sortField = validSort.includes(sortBy || '') ? sortBy : 'productName';
+
+    items.sort((a, b) => {
+      let aVal: any = a[sortField as keyof typeof a];
+      let bVal: any = b[sortField as keyof typeof b];
+
+      let cmp: number;
+      if (sortField === 'createdAt') {
+        cmp = new Date(aVal).getTime() - new Date(bVal).getTime();
+      } else if (typeof aVal === 'string') {
+        cmp = aVal.localeCompare(bVal);
+      } else {
+        cmp = Number(aVal) - Number(bVal);
+      }
+      return sortOrder === 'DESC' ? -cmp : cmp;
+    });
+
+    const total = items.length;
+    const offset = (page - 1) * pageSize;
+    const paginatedItems = items.slice(offset, offset + pageSize);
+
     return {
-      items: Array.from(inventoryMap.values()),
+      items: paginatedItems,
       total,
       page,
       pageSize,

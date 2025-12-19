@@ -61,9 +61,12 @@ export class InventoryService {
     }
 
     if (search) {
-      qb.andWhere(`(purchase.productName LIKE :s OR purchase.brand LIKE :s)`, {
-        s: `%${search}%`,
-      });
+      qb.andWhere(
+        `(LOWER(purchase.productName) LIKE :s OR LOWER(purchase.brand) LIKE :s)`,
+        {
+          s: `%${search.toLowerCase()}%`,
+        }
+      );
     }
 
     const rows = await qb.getMany();

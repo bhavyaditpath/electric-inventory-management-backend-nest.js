@@ -7,6 +7,7 @@ import { UpdateBranchDto } from './dto/update-branch.dto';
 import { GenericRepository } from '../shared/generic-repository';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '../shared/enums/notification-type.enum';
+import { User } from '../user/entities/user.entity';
 
 @Injectable()
 export class BranchService {
@@ -15,6 +16,8 @@ export class BranchService {
   constructor(
     @InjectRepository(Branch)
     repo: Repository<Branch>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private readonly notificationService: NotificationService,
   ) {
     this.branchRepository = new GenericRepository(repo);
@@ -102,15 +105,34 @@ export class BranchService {
         throw new Error('Branch name already exists');
       }
     }
+    // Check if any users are assigned to this branch
+    const userCount = await this.userRepo.count({
+      where: { branchId: id, isRemoved: false }
+    });
+
+    if (userCount > 0) {
+      throw new Error('Cannot delete branch: Users are still assigned to this branch');
+    }
 
     return this.branchRepository.update(id, updateBranchDto);
   }
 
   async remove(id: number) {
     const branch = await this.findOne(id);
-    if (branch) {
-      await this.branchRepository.softDelete(id);
+    if (!branch) {
+      throw new Error('Branch not found');
     }
+
+    // Check if any users are assigned to this branch
+    const userCount = await this.userRepo.count({
+      where: { branchId: id, isRemoved: false }
+    });
+
+    if (userCount > 0) {
+      throw new Error('Cannot delete branch: Users are still assigned to this branch');
+    }
+
+    await this.branchRepository.softDelete(id);
     return branch;
   }
 

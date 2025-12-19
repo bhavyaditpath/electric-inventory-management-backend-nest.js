@@ -59,9 +59,9 @@ export class BranchService {
 
     // Add search conditions if search term is provided
     if (search && search.trim()) {
-      const searchTerm = `%${search.trim()}%`;
+      const searchTerm = `%${search.trim().toLowerCase()}%`;
       queryBuilder.andWhere(
-        '(branch.name LIKE :searchTerm)',
+        'LOWER(branch.name) LIKE :searchTerm',
         { searchTerm }
       );
     }

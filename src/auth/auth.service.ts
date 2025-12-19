@@ -48,7 +48,7 @@ export class AuthService {
 
   async login(dto: LoginDto): Promise<ApiResponse> {
     const user = await this.userRepo.findOne({
-      where: { username: dto.username }
+      where: { username: dto.username, isRemoved: false }
     });
 
     if (!user) return ApiResponseUtil.error("Invalid credentials");

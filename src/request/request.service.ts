@@ -77,11 +77,11 @@ export class RequestService {
 
     // Search functionality
     if (params?.search) {
-      const searchTerm = `%${params.search}%`;
+      const searchTerm = `%${params.search.trim().toLowerCase()}%`;
       query.andWhere(
-        '(CAST(request.status AS TEXT) ILIKE :search OR ' +
-        'request.notes ILIKE :search OR ' +
-        'purchase.productName ILIKE :search )',
+        `(LOWER(CAST(request.status AS TEXT)) LIKE :search
+      OR LOWER(request.notes) LIKE :search
+      OR LOWER(purchase.productName) LIKE :search)`,
         { search: searchTerm }
       );
     }

@@ -77,13 +77,14 @@ export class UserService {
   ): Promise<ApiResponse> {
     const queryBuilder = this.userRepository['repo']
       .createQueryBuilder('user')
-      .leftJoinAndSelect('user.branch', 'branch');
+      .leftJoinAndSelect('user.branch', 'branch')
+      .andWhere('user.isRemoved = :isRemoved', { isRemoved: false });
 
     // Add search conditions if search term is provided
     if (search && search.trim()) {
-      const searchTerm = `%${search.trim()}%`;
+      const searchTerm = `%${search.trim().toLowerCase()}%`;
       queryBuilder.andWhere(
-        '(user.username LIKE :searchTerm OR branch.name LIKE :searchTerm)',
+        `(LOWER(user.username) LIKE :searchTerm OR LOWER(branch.name) LIKE :searchTerm)`,
         { searchTerm }
       );
     }

@@ -179,11 +179,18 @@ export class UserService {
       userDto.password = await HashUtil.hash(userDto.password);
     }
 
-    // Apply updates
-    const updatedUser = await this.userRepository.update(id, {
-      ...userDto,
+    // Prepare update data with only entity properties
+    const updateData = {
+      username: userDto.username,
+      password: userDto.password,
+      role: userDto.role,
       branchId,
-    });
+    };
+
+    console.log('Update data being passed to repository:', updateData);
+
+    // Apply updates
+    const updatedUser = await this.userRepository.update(id, updateData);
 
     return ApiResponseUtil.success(updatedUser, 'User updated successfully');
   }

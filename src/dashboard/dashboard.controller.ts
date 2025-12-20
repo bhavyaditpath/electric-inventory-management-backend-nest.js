@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
+import { StockAlert } from '../alert/entities/alert.entity';
 
 @Controller('dashboard')
 export class DashboardController {
@@ -28,6 +29,11 @@ export class DashboardController {
   async getPendingRequests(@Param('userId', ParseIntPipe) userId: number): Promise<{ count: number }> {
     const count = await this.dashboardService.getPendingRequests(userId);
     return { count };
+  }
+
+  @Get(':userId/active-alerts-list')
+  async getActiveAlertsList(@Param('userId', ParseIntPipe) userId: number): Promise<StockAlert[]> {
+    return await this.dashboardService.getActiveAlertsList(userId);
   }
 
   // Branch Dashboard APIs

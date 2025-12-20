@@ -97,6 +97,39 @@ export class DashboardService {
     });
   }
 
+  async getActiveAlertsList(userId: number): Promise<StockAlert[]> {
+    const user = await this.userRepository.findOne({ where: { id: userId, isRemoved: false } });
+    if (!user || !user.branchId) return [];
+
+    return await this.alertRepository
+      .createQueryBuilder('alert')
+      .leftJoinAndSelect('alert.branch', 'branch')
+      .select([
+        'alert.id',
+        'alert.createdAt',
+        'alert.updatedAt',
+        'alert.createdBy',
+        'alert.updatedBy',
+        'alert.isRemoved',
+        'alert.itemName',
+        'alert.currentStock',
+        'alert.minStock',
+        'alert.shortage',
+        'alert.priority',
+        'alert.alertType',
+        'alert.status',
+        'alert.resolvedDate',
+        'alert.notes',
+        'alert.branchId',
+        'branch.id',
+        'branch.name',
+      ])
+      .where('alert.status = :status', { status: AlertStatus.ACTIVE })
+      .andWhere('alert.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('alert.branchId = :branchId', { branchId: user.branchId })
+      .getMany();
+  }
+
   async getPendingOrders(userId: number): Promise<number> {
     return await this.requestRepository.count({
       where: {

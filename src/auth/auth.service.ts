@@ -190,7 +190,7 @@ export class AuthService {
       branchId: user.branchId
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '45m' });
 
     const refreshToken = this.jwtService.sign({ ...payload, type: 'refresh' }, { expiresIn: '7d' }); // 7 days expiry
 

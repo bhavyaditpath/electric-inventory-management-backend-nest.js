@@ -14,4 +14,13 @@ export class InventoryController {
     const result = await this.inventoryService.findAll(req.user, query);
     return ApiResponseUtil.success(result);
   }
+
+  @Get('summary')
+  async getStockSummary(
+    @Req() req: any,
+    @Query('search') search?: string,
+  ) {
+    const summary = await this.inventoryService.getStockSummary(req.user, search);
+    return ApiResponseUtil.success(summary);
+  }
 }

@@ -105,13 +105,15 @@ export class BranchService {
         throw new Error('Branch name already exists');
       }
     }
-    // Check if any users are assigned to this branch
-    const userCount = await this.userRepo.count({
-      where: { branchId: id, isRemoved: false }
-    });
+    // Check if trying to deactivate branch and users are assigned
+    if (updateBranchDto.isRemoved === true) {
+      const userCount = await this.userRepo.count({
+        where: { branchId: id, isRemoved: false }
+      });
 
-    if (userCount > 0) {
-      throw new Error('Cannot delete branch: Users are still assigned to this branch');
+      if (userCount > 0) {
+        throw new Error('Cannot deactivate branch: Users are still assigned to this branch');
+      }
     }
 
     return this.branchRepository.update(id, updateBranchDto);

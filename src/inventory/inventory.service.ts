@@ -134,4 +134,67 @@ export class InventoryService {
     };
   }
 
+
+  async getStockSummary(user: User, search?: string) {
+    const qb = this.purchaseRepository['repo']
+      .createQueryBuilder('purchase')
+      .leftJoin('purchase.branch', 'branch')
+      .leftJoin('purchase.user', 'user')
+      .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
+      .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
+
+    if (user.role === UserRole.ADMIN) {
+      qb.andWhere('purchase.createdBy = :userId', { userId: user.id });
+    } else {
+      qb.andWhere('purchase.createdBy = :userId', { userId: user.id })
+        .andWhere('(req.id IS NULL OR req.status = :delivered)', {
+          delivered: RequestStatus.DELIVERED,
+        });
+    }
+
+    if (search) {
+      qb.andWhere(
+        `(LOWER(purchase.productName) LIKE :s OR LOWER(purchase.brand) LIKE :s)`,
+        { s: `%${search.toLowerCase()}%` }
+      );
+    }
+
+    const rows = await qb.getMany();
+
+    const inventoryMap = new Map<string, any>();
+
+    for (const r of rows) {
+      const key = `${r.productName}-${r.brand}-${r.branchId}`;
+
+      if (!inventoryMap.has(key)) {
+        inventoryMap.set(key, {
+          currentQuantity: 0,
+          lowStockThreshold: r.lowStockThreshold,
+        });
+      }
+
+      const item = inventoryMap.get(key);
+      item.currentQuantity += Number(r.quantity);
+    }
+
+    let low = 0;
+    let warning = 0;
+    let good = 0;
+
+    for (const item of inventoryMap.values()) {
+      if (item.currentQuantity <= item.lowStockThreshold) {
+        low++;
+      } else if (item.currentQuantity <= item.lowStockThreshold * 2) {
+        warning++;
+      } else {
+        good++;
+      }
+    }
+
+    return {
+      low,
+      warning,
+      good,
+    };
+  }
 }

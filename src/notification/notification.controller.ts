@@ -3,15 +3,21 @@ import { NotificationService } from './notification.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard, AdminOnlyGuard } from '../shared/guards';
+import { Roles, CurrentUser } from '../shared/decorators';
+import { UserRole } from '../shared/enums/role.enum';
 import { NotificationType } from '../shared/enums/notification-type.enum';
 import { ApiResponseUtil } from '../shared/api-response';
+import { User } from '../user/entities/user.entity';
 
 @Controller('notifications')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) { }
 
   @Post()
+  @Roles(UserRole.ADMIN)
+  @UseGuards(AdminOnlyGuard)
   async create(@Body() createNotificationDto: CreateNotificationDto) {
     try {
       const result = await this.notificationService.create(createNotificationDto);
@@ -22,10 +28,10 @@ export class NotificationController {
   }
 
   @Get('latest')
-  async getLatest(@Req() req, @Query('limit') limit?: string) {
+  async getLatest(@CurrentUser() user: User, @Query('limit') limit?: string) {
     try {
       const limitNum = limit ? +limit : 5;
-      const result = await this.notificationService.findLatest(limitNum, req.user.id);
+      const result = await this.notificationService.findLatest(limitNum, user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch latest notifications');
@@ -50,9 +56,9 @@ export class NotificationController {
   }
 
   @Get('unread-count')
-  async getUnreadCount(@Req() req) {
+  async getUnreadCount(@CurrentUser() user: User) {
     try {
-      const result = await this.notificationService.getUnreadCount(req.user.id);
+      const result = await this.notificationService.getUnreadCount(user.id);
       return ApiResponseUtil.success(result);
     } catch (error) {
       return ApiResponseUtil.error(error.message || 'Failed to fetch unread count');

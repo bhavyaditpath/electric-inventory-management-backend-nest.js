@@ -5,21 +5,29 @@ import { UpdateAlertDto } from './dto/update-alert.dto';
 import { ResolveAlertDto } from './dto/resolve-alert.dto';
 import { DismissAlertDto } from './dto/dismiss-alert.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard, AdminOnlyGuard, BranchAccessGuard } from '../shared/guards';
+import { Roles, CurrentUser } from '../shared/decorators';
+import { UserRole } from '../shared/enums/role.enum';
 import { AlertStatus } from '../shared/enums/alert-status.enum';
+import { User } from '../user/entities/user.entity';
 
 @Controller('alerts')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class AlertController {
   constructor(private readonly alertService: AlertService) {}
 
   @Post()
+  @Roles(UserRole.ADMIN)
+  @UseGuards(AdminOnlyGuard)
   create(@Body() createAlertDto: CreateAlertDto) {
     return this.alertService.create(createAlertDto);
   }
 
   @Get('branch/:branchId')
+  @UseGuards(BranchAccessGuard)
   findByBranch(
     @Param('branchId') branchId: string,
+    @CurrentUser() user: User,
     @Query('status') status?: AlertStatus,
     @Query('page') page?: string,
     @Query('limit') limit?: string,

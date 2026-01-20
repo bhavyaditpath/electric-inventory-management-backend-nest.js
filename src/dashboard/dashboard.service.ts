@@ -25,11 +25,11 @@ export class DashboardService {
   ) {}
 
   // Admin Dashboard APIs
-  async getTotalInventory(userId: number): Promise<number> {
+  async getTotalInventory(user: User): Promise<number> {
     return await this.purchaseRepository.count({
       where: {
         isRemoved: false,
-        createdBy: userId,
+        branchId: user.branchId,
       },
     });
   }
@@ -40,7 +40,7 @@ export class DashboardService {
     });
   }
 
-  async getMonthlySales(userId: number): Promise<number> {
+  async getMonthlySales(user: User): Promise<number> {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
@@ -51,7 +51,7 @@ export class DashboardService {
       .select('SUM(request.quantityRequested * purchase.pricePerUnit)', 'total')
       .where('request.status = :status', { status: RequestStatus.DELIVERED })
       .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('request.adminUserId = :userId', { userId })
+      .andWhere('purchase.branchId = :branchId', { branchId: user.branchId })
       .andWhere('request.createdAt >= :start', { start: startOfMonth })
       .andWhere('request.createdAt <= :end', { end: endOfMonth });
 
@@ -59,14 +59,15 @@ export class DashboardService {
     return parseFloat(result.total) || 0;
   }
 
-  async getPendingRequests(userId: number): Promise<number> {
-    return await this.requestRepository.count({
-      where: {
-        status: RequestStatus.REQUEST,
-        isRemoved: false,
-        adminUserId: userId,
-      },
-    });
+  async getPendingRequests(user: User): Promise<number> {
+    const qb = this.requestRepository
+      .createQueryBuilder('request')
+      .leftJoin('request.purchase', 'purchase')
+      .where('request.status = :status', { status: RequestStatus.REQUEST })
+      .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('purchase.branchId = :branchId', { branchId: user.branchId });
+
+    return await qb.getCount();
   }
 
   // Branch Dashboard APIs
@@ -121,17 +122,17 @@ export class DashboardService {
       .getMany();
   }
 
-  async getPendingOrders(userId: number): Promise<number> {
+  async getPendingOrders(user: User): Promise<number> {
     return await this.requestRepository.count({
       where: {
         status: RequestStatus.REQUEST,
         isRemoved: false,
-        requestingUserId: userId,
+        requestingUserId: user.id,
       },
     });
   }
 
-  async getTodaysbuys(userId: number): Promise<number> {
+  async getTodaysbuys(user: User): Promise<number> {
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
@@ -142,7 +143,7 @@ export class DashboardService {
       .select('SUM(request.quantityRequested * purchase.pricePerUnit)', 'total')
       .where('request.status = :status', { status: RequestStatus.DELIVERED })
       .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('request.requestingUserId = :userId', { userId })
+      .andWhere('purchase.branchId = :branchId', { branchId: user.branchId })
       .andWhere('request.createdAt >= :start', { start: startOfDay })
       .andWhere('request.createdAt <= :end', { end: endOfDay });
 

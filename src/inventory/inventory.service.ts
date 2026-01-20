@@ -51,14 +51,10 @@ export class InventoryService {
       .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
       .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
 
-    if (user.role === UserRole.ADMIN) {
-      qb.andWhere('purchase.createdBy = :userId', { userId: user.id });
-    } else {
-      qb.andWhere('purchase.createdBy = :userId', { userId: user.id })
-        .andWhere('(req.id IS NULL OR req.status = :delivered)', {
-          delivered: RequestStatus.DELIVERED,
-        });
-    }
+    qb.andWhere('purchase.branchId = :branchId', { branchId: user.branchId })
+      .andWhere('(req.id IS NULL OR req.status = :delivered)', {
+        delivered: RequestStatus.DELIVERED,
+      });
 
     if (search) {
       qb.andWhere(
@@ -143,14 +139,10 @@ export class InventoryService {
       .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
       .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
 
-    if (user.role === UserRole.ADMIN) {
-      qb.andWhere('purchase.createdBy = :userId', { userId: user.id });
-    } else {
-      qb.andWhere('purchase.createdBy = :userId', { userId: user.id })
-        .andWhere('(req.id IS NULL OR req.status = :delivered)', {
-          delivered: RequestStatus.DELIVERED,
-        });
-    }
+    qb.andWhere('purchase.branchId = :branchId', { branchId: user.branchId })
+      .andWhere('(req.id IS NULL OR req.status = :delivered)', {
+        delivered: RequestStatus.DELIVERED,
+      });
 
     if (search) {
       qb.andWhere(

@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as ExcelJS from 'exceljs';
 import { Purchase } from '../purchase/entities/purchase.entity';
+import { User } from '../user/entities/user.entity';
 import { ReportPreference } from './entities/report-preference.entity';
 import { CreateReportPreferenceDto } from './dto/create-report-preference.dto';
 import { UpdateReportPreferenceDto } from './dto/update-report-preference.dto';
@@ -28,32 +29,32 @@ export class ReportsService {
     private notificationService: NotificationService,
   ) { }
 
-  async getDailyReport(userId?: number) {
+  async getDailyReport(user?: User) {
     const now = new Date();
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0); // Set to midnight today
 
-    return this.generateReport(startOfDay, now, userId);
+    return this.generateReport(startOfDay, now, user);
   }
 
-  async getWeeklyReport(userId?: number) {
+  async getWeeklyReport(user?: User) {
     const now = new Date();
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay()); // Start of current week (Sunday)
     startOfWeek.setHours(0, 0, 0, 0);
 
-    return this.generateReport(startOfWeek, now, userId);
+    return this.generateReport(startOfWeek, now, user);
   }
 
-  async getMonthlyReport(userId?: number) {
+  async getMonthlyReport(user?: User) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    return this.generateReport(startOfMonth, now, userId);
+    return this.generateReport(startOfMonth, now, user);
   }
 
-  async getHalfYearlyReport(userId?: number) {
+  async getHalfYearlyReport(user?: User) {
     const now = new Date();
     let startOfHalfYear = new Date(now);
 
@@ -68,18 +69,18 @@ export class ReportsService {
     }
     startOfHalfYear.setHours(0, 0, 0, 0);
 
-    return this.generateReport(startOfHalfYear, now, userId);
+    return this.generateReport(startOfHalfYear, now, user);
   }
 
-  async getYearlyReport(userId?: number) {
+  async getYearlyReport(user?: User) {
     const now = new Date();
     const startOfYear = new Date(now.getFullYear(), 0, 1);
     startOfYear.setHours(0, 0, 0, 0);
 
-    return this.generateReport(startOfYear, now, userId);
+    return this.generateReport(startOfYear, now, user);
   }
 
-  private async generateReport(startDate: Date, endDate: Date, userId?: number) {
+  private async generateReport(startDate: Date, endDate: Date, user?: User) {
     let query = this.purchaseRepository
       .createQueryBuilder('purchase')
       .leftJoin('purchase.user', 'user')
@@ -95,8 +96,8 @@ export class ReportsService {
       })
       .andWhere('purchase.isRemoved = :isRemoved', { isRemoved: false });
 
-    if (userId) {
-      query = query.andWhere('purchase.userId = :userId', { userId });
+    if (user) {
+      query = query.andWhere('purchase.branchId = :branchId', { branchId: user.branchId });
     }
 
     const result = await query.getRawOne();
@@ -219,32 +220,32 @@ export class ReportsService {
     }
   }
 
-  private generateReportFileName(reportType: ReportType, userId?: number): string {
+  private generateReportFileName(reportType: ReportType, user?: User): string {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
-    const userSuffix = userId ? `_user_${userId}` : '_all_users';
-    return `${reportType}_${dateStr}_${timeStr}${userSuffix}.xlsx`;
+    const branchSuffix = user ? `_branch_${user.branchId}` : '_all_branches';
+    return `${reportType}_${dateStr}_${timeStr}${branchSuffix}.xlsx`;
   }
 
-  private async generateReportData(reportType: ReportType, userId?: number) {
+  private async generateReportData(reportType: ReportType, user?: User) {
     switch (reportType) {
       case ReportType.DAILY:
-        return await this.getDailyReport(userId);
+        return await this.getDailyReport(user);
       case ReportType.WEEKLY:
-        return await this.getWeeklyReport(userId);
+        return await this.getWeeklyReport(user);
       case ReportType.MONTHLY:
-        return await this.getMonthlyReport(userId);
+        return await this.getMonthlyReport(user);
       case ReportType.HALF_YEARLY:
-        return await this.getHalfYearlyReport(userId);
+        return await this.getHalfYearlyReport(user);
       case ReportType.YEARLY:
-        return await this.getYearlyReport(userId);
+        return await this.getYearlyReport(user);
       default:
         throw new Error(`Unknown report type: ${reportType}`);
     }
   }
 
-  private createReportWorkbook(reportType: ReportType, reportData: any, userId?: number): ExcelJS.Workbook {
+  private createReportWorkbook(reportType: ReportType, reportData: any, user?: User): ExcelJS.Workbook {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`);
 
@@ -259,7 +260,7 @@ export class ReportsService {
       second: 'numeric',
       hour12: true
     })]);
-    worksheet.addRow(['User ID', userId || 'All Users']);
+    worksheet.addRow(['Branch ID', user ? user.branchId : 'All Branches']);
     worksheet.addRow(['Period Start', reportData.period.startDate.toLocaleString('en-GB', {
       year: 'numeric',
       month: 'numeric',
@@ -304,39 +305,39 @@ export class ReportsService {
     return workbook;
   }
 
-  async generateAndSaveReport(reportType: ReportType, userId?: number): Promise<string> {
-    const reportData = await this.generateReportData(reportType, userId);
+  async generateAndSaveReport(reportType: ReportType, user?: User): Promise<string> {
+    const reportData = await this.generateReportData(reportType, user);
 
     const folderPath = this.getReportFolder(reportType);
     this.ensureDirectoryExists(folderPath);
 
-    const fileName = this.generateReportFileName(reportType, userId);
+    const fileName = this.generateReportFileName(reportType, user);
     const filePath = path.join(folderPath, fileName);
 
-    const workbook = this.createReportWorkbook(reportType, reportData, userId);
+    const workbook = this.createReportWorkbook(reportType, reportData, user);
     await workbook.xlsx.writeFile(filePath);
 
     return filePath;
   }
 
-  private async generateReportBuffer(reportType: ReportType, userId?: number): Promise<Buffer> {
-    const reportData = await this.generateReportData(reportType, userId);
-    const workbook = this.createReportWorkbook(reportType, reportData, userId);
+  private async generateReportBuffer(reportType: ReportType, user?: User): Promise<Buffer> {
+    const reportData = await this.generateReportData(reportType, user);
+    const workbook = this.createReportWorkbook(reportType, reportData, user);
     return await workbook.xlsx.writeBuffer() as any;
   }
 
-  private async sendReportEmail(to: string, reportType: ReportType, buffer: Buffer, userId?: number): Promise<void> {
-    const fileName = this.generateReportFileName(reportType, userId);
+  private async sendReportEmail(to: string, reportType: ReportType, buffer: Buffer, user?: User): Promise<void> {
+    const fileName = this.generateReportFileName(reportType, user);
     const subject = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
     const generatedDate = new Date().toLocaleString();
     const reportTypeDisplay = reportType.charAt(0).toUpperCase() + reportType.slice(1).toLowerCase();
-    const userDisplay = userId ? `User ID: ${userId}` : 'All Users';
+    const branchDisplay = user ? `Branch ID: ${user.branchId}` : 'All Branches';
 
     const html = renderTemplate("report-email", {
       reportTypeDisplay,
       reportTypeDisplayLower: reportTypeDisplay.toLowerCase(),
       generatedDate,
-      userDisplay,
+      userDisplay: branchDisplay,
     });
 
     await this.emailService.sendReportEmail(to, subject, html, {
@@ -355,13 +356,13 @@ export class ReportsService {
     for (const preference of activePreferences) {
       try {
         if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
-          await this.generateAndSaveReport(preference.reportType, preference.userId);
-          console.log(`Generated ${preference.reportType} report for user ${preference.userId}`);
+          await this.generateAndSaveReport(preference.reportType, preference.user);
+          console.log(`Generated ${preference.reportType} report for branch ${preference.user.branchId}`);
           await this.createReportNotification(preference, preference.reportType, 'saved');
         } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
-          const reportBuffer = await this.generateReportBuffer(preference.reportType, preference.userId);
-          await this.sendReportEmail(preference.user.email || preference.user.username, preference.reportType, reportBuffer, preference.userId);
-          console.log(`Sent ${preference.reportType} report via email to user ${preference.userId}`);
+          const reportBuffer = await this.generateReportBuffer(preference.reportType, preference.user);
+          await this.sendReportEmail(preference.user.email || preference.user.username, preference.reportType, reportBuffer, preference.user);
+          console.log(`Sent ${preference.reportType} report via email to branch ${preference.user.branchId}`);
           await this.createReportNotification(preference, preference.reportType, 'sent');
         }
       } catch (error) {
@@ -413,17 +414,17 @@ export class ReportsService {
     for (const preference of preferences) {
       try {
         if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
-          await this.generateAndSaveReport(reportType, preference.userId);
-          console.log(`Generated ${reportType} report for user ${preference.userId}`);
+          await this.generateAndSaveReport(reportType, preference.user);
+          console.log(`Generated ${reportType} report for branch ${preference.user.branchId}`);
           await this.createReportNotification(preference, reportType, 'saved');
         } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
-          const reportBuffer = await this.generateReportBuffer(reportType, preference.userId);
-          await this.sendReportEmail(preference.user.email, reportType, reportBuffer, preference.userId);
-          console.log(`Sent ${reportType} report via email to user ${preference.userId}`);
+          const reportBuffer = await this.generateReportBuffer(reportType, preference.user);
+          await this.sendReportEmail(preference.user.email, reportType, reportBuffer, preference.user);
+          console.log(`Sent ${reportType} report via email to branch ${preference.user.branchId}`);
           await this.createReportNotification(preference, reportType, 'sent');
         }
       } catch (error) {
-        console.error(`Failed to generate ${reportType} report for user ${preference.userId}:`, error);
+        console.error(`Failed to generate ${reportType} report for branch ${preference.user.branchId}:`, error);
       }
     }
   }

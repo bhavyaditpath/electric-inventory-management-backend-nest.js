@@ -15,27 +15,27 @@ export class ReportsController {
 
   @Get('daily')
   async getDailyReport(@CurrentUser() user: User) {
-    return this.reportsService.getDailyReport(user.id);
+    return this.reportsService.getDailyReport(user);
   }
 
   @Get('weekly')
   async getWeeklyReport(@CurrentUser() user: User) {
-    return this.reportsService.getWeeklyReport(user.id);
+    return this.reportsService.getWeeklyReport(user);
   }
 
   @Get('monthly')
   async getMonthlyReport(@CurrentUser() user: User) {
-    return this.reportsService.getMonthlyReport(user.id);
+    return this.reportsService.getMonthlyReport(user);
   }
 
   @Get('half-yearly')
   async getHalfYearlyReport(@CurrentUser() user: User) {
-    return this.reportsService.getHalfYearlyReport(user.id);
+    return this.reportsService.getHalfYearlyReport(user);
   }
 
   @Get('yearly')
   async getYearlyReport(@CurrentUser() user: User) {
-    return this.reportsService.getYearlyReport(user.id);
+    return this.reportsService.getYearlyReport(user);
   }
 
   @Post('preferences')
@@ -66,7 +66,7 @@ export class ReportsController {
 
   @Post('generate/:reportType')
   async generateReport(@Param('reportType') reportType: string, @CurrentUser() user: User) {
-    const filePath = await this.reportsService.generateAndSaveReport(reportType as any, user.id);
+    const filePath = await this.reportsService.generateAndSaveReport(reportType as any, user);
     return {
       message: 'Report generated and saved successfully',
       filePath

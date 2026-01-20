@@ -71,13 +71,9 @@ export class PurchaseService {
       const user = await this.userRepository.findOne({ where: { id: userId } });
 
       if (user) {
-        if (user.role === UserRole.ADMIN) {
-          query.andWhere('purchase.userId = :userId', { userId });
-        } else if (user.role === UserRole.BRANCH) {
-          query.andWhere('purchase.branchId = :branchId', {
-            branchId: user.branchId,
-          });
-        }
+        query.andWhere('purchase.branchId = :branchId', {
+          branchId: user.branchId,
+        });
       }
     }
 

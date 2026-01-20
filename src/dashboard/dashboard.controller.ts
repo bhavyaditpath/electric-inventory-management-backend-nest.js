@@ -47,17 +47,15 @@ export class DashboardController {
   }
 
   // Branch Dashboard APIs
-  @Get('branch/:userId/current-stock')
+  @Get('branch/current-stock')
   @Roles(UserRole.BRANCH)
-  @UseGuards(BranchAccessGuard)
-  async getCurrentStock(@Param('userId', ParseIntPipe) userId: number, @CurrentUser() user: User): Promise<{ count: number }> {
-    const count = await this.dashboardService.getCurrentStock(userId);
+  async getCurrentStock(@CurrentUser() user: User): Promise<{ count: number }> {
+    const count = await this.dashboardService.getCurrentStock(user);
     return { count };
   }
 
   @Get('branch/:userId/active-alerts')
   @Roles(UserRole.BRANCH)
-  @UseGuards(BranchAccessGuard)
   async getActiveAlerts(@Param('userId', ParseIntPipe) userId: number, @CurrentUser() user: User): Promise<{ count: number }> {
     const count = await this.dashboardService.getActiveAlerts(userId);
     return { count };

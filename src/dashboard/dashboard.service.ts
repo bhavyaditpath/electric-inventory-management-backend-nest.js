@@ -71,14 +71,15 @@ export class DashboardService {
   }
 
   // Branch Dashboard APIs
-  async getCurrentStock(userId: number): Promise<number> {
-    const user = await this.userRepository.findOne({ where: { id: userId, isRemoved: false } });
+  async getCurrentStock(user: User): Promise<number> {
     if (!user || !user.branchId) return 0;
 
-    const qb = this.purchaseRepository
-      .createQueryBuilder('purchase')
-      .select('SUM(purchase.quantity)', 'total')
-      .where('purchase.isRemoved = :isRemoved', { isRemoved: false })
+    const qb = this.requestRepository
+      .createQueryBuilder('request')
+      .leftJoin('request.purchase', 'purchase')
+      .select('SUM(request.quantityRequested)', 'total')
+      .where('request.status = :status', { status: RequestStatus.DELIVERED })
+      .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
       .andWhere('purchase.branchId = :branchId', { branchId: user.branchId });
 
     const result = await qb.getRawOne();
@@ -140,7 +141,7 @@ export class DashboardService {
     const qb = this.requestRepository
       .createQueryBuilder('request')
       .leftJoin('request.purchase', 'purchase')
-      .select('SUM(request.quantityRequested * purchase.pricePerUnit)', 'total')
+      .select('SUM(purchase.totalPrice)', 'total')
       .where('request.status = :status', { status: RequestStatus.DELIVERED })
       .andWhere('request.isRemoved = :isRemoved', { isRemoved: false })
       .andWhere('purchase.branchId = :branchId', { branchId: user.branchId })

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
@@ -7,6 +7,7 @@ import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
+import { ChatGateway } from './chat.gateway';
 
 @Injectable()
 export class ChatService {
@@ -17,6 +18,8 @@ export class ChatService {
     private chatMessageRepository: Repository<ChatMessage>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   async createChatRoom(dto: CreateChatRoomDto, userId: number): Promise<ApiResponse> {
@@ -186,6 +189,28 @@ export class ChatService {
         username: u.username,
         branch: u.branch?.name,
         role: u.role,
+      })),
+    );
+  }
+
+  async getUsersWithOnlineStatus(userId: number): Promise<ApiResponse> {
+    const query = this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.branch', 'branch')
+      .where('user.id != :userId', { userId })
+      .andWhere('user.isRemoved = :isRemoved', { isRemoved: false });
+
+    const users = await query.getMany();
+
+    const onlineUserIds = this.chatGateway.getOnlineUsers();
+
+    return ApiResponseUtil.success(
+      users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        branch: u.branch?.name,
+        role: u.role,
+        isOnline: onlineUserIds.includes(u.id),
       })),
     );
   }

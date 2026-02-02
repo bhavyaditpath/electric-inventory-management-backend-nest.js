@@ -48,6 +48,11 @@ export class ChatController {
     return this.chatService.getUsersForChat(req.user.id, search);
   }
 
+  @Get('users/online-status')
+  async getUsersWithOnlineStatus(@Request() req) {
+    return this.chatService.getUsersWithOnlineStatus(req.user.id);
+  }
+
   @Post('messages')
   async sendMessage(@Body() dto: SendMessageDto, @Request() req) {
     return this.chatService.sendMessage(dto, req.user.id);

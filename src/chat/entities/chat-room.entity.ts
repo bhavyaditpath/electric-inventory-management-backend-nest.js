@@ -2,6 +2,7 @@ import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntityClass } from '../../shared/base.entity';
 import { User } from '../../user/entities/user.entity';
 import { ChatMessage } from './chat-message.entity';
+import { ChatRoomParticipant } from './chat-room-participant.entity';
 
 @Entity('chat_rooms')
 export class ChatRoom extends BaseEntityClass {
@@ -18,4 +19,7 @@ export class ChatRoom extends BaseEntityClass {
 
   @OneToMany(() => ChatMessage, (message) => message.chatRoom)
   messages: ChatMessage[];
+
+  @OneToMany(() => ChatRoomParticipant, (participant) => participant.chatRoom)
+  participants: ChatRoomParticipant[];
 }

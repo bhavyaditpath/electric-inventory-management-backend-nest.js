@@ -11,7 +11,6 @@ import { Server, Socket } from 'socket.io';
 import { forwardRef, Inject } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '../user/entities/user.entity';
 
 @WebSocketGateway({
   cors: {
@@ -76,9 +75,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: number },
   ) {
-    client.join(`room_${data.roomId}`);
-    console.log(`Client joined room ${data.roomId}`);
-    return { event: 'joinedRoom', data: { roomId: data.roomId } };
+    try {
+      const token =
+        client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      const isParticipant = await this.chatService.isUserInRoom(data.roomId, userId);
+      if (!isParticipant) {
+        return { event: 'error', data: 'Not a participant of this room' };
+      }
+
+      client.join(`room_${data.roomId}`);
+      console.log(`Client joined room ${data.roomId}`);
+      return { event: 'joinedRoom', data: { roomId: data.roomId } };
+    } catch (error) {
+      console.error('Join room error:', error);
+      return { event: 'error', data: 'Failed to join room' };
+    }
   }
 
   @SubscribeMessage('leaveRoom')
@@ -105,6 +123,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = await this.chatService.sendMessage(
         { chatRoomId: data.roomId, content: data.content },
         userId,
+        { emit: false },
       );
 
       if (result.success && result.data) {

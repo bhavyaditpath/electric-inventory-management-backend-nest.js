@@ -22,7 +22,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private connectedUsers: Map<number, string> = new Map(); // userId -> socketId
+  private connectedUsers: Map<number, Set<string>> = new Map(); // userId -> socketIds
 
   constructor(
     @Inject(forwardRef(() => ChatService))
@@ -43,13 +43,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const userId = payload.sub;
 
       // Store user connection
-      this.connectedUsers.set(userId, client.id);
+      const existingSockets = this.connectedUsers.get(userId);
+      const sockets = existingSockets || new Set<string>();
+      const wasOnline = sockets.size > 0;
+      sockets.add(client.id);
+      this.connectedUsers.set(userId, sockets);
       client.join(`user_${userId}`);
 
       console.log(`User ${userId} connected to chat`);
 
       // Notify others that user is online
-      client.broadcast.emit('userOnline', { userId });
+      if (!wasOnline) {
+        client.broadcast.emit('userOnline', { userId });
+      }
     } catch (error) {
       console.error('WebSocket connection error:', error);
       client.disconnect();
@@ -58,13 +64,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     // Find user by socketId and remove
-    for (const [userId, socketId] of this.connectedUsers.entries()) {
-      if (socketId === client.id) {
-        this.connectedUsers.delete(userId);
-        console.log(`User ${userId} disconnected from chat`);
-        
-        // Notify others that user is offline
-        client.broadcast.emit('userOffline', { userId });
+    for (const [userId, socketIds] of this.connectedUsers.entries()) {
+      if (socketIds.has(client.id)) {
+        socketIds.delete(client.id);
+        if (socketIds.size === 0) {
+          this.connectedUsers.delete(userId);
+          console.log(`User ${userId} disconnected from chat`);
+          // Notify others that user is offline
+          client.broadcast.emit('userOffline', { userId });
+        }
         break;
       }
     }
@@ -150,15 +158,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: number; isTyping: boolean },
   ) {
-    const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
-    const payload = this.jwtService.verify(token);
-    const userId = payload.sub;
+    try {
+      const token =
+        client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
 
-    // Broadcast typing status to room (except sender)
-    client.to(`room_${data.roomId}`).emit('userTyping', {
-      userId,
-      isTyping: data.isTyping,
-    });
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      const isParticipant = await this.chatService.isUserInRoom(data.roomId, userId);
+      if (!isParticipant) {
+        return { event: 'error', data: 'Not a participant of this room' };
+      }
+
+      // Broadcast typing status to room (except sender)
+      client.to(`room_${data.roomId}`).emit('userTyping', {
+        userId,
+        isTyping: data.isTyping,
+      });
+    } catch (error) {
+      console.error('Typing error:', error);
+      return { event: 'error', data: 'Failed to send typing status' };
+    }
   }
 
   @SubscribeMessage('markAsRead')
@@ -192,6 +215,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // Check if user is online
   isUserOnline(userId: number): boolean {
-    return this.connectedUsers.has(userId);
+    const sockets = this.connectedUsers.get(userId);
+    return !!sockets && sockets.size > 0;
   }
 }

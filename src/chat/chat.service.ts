@@ -125,7 +125,20 @@ export class ChatService {
       return ApiResponseUtil.error('Chat room not found');
     }
 
-    return ApiResponseUtil.success(room);
+    const formattedRoom = {
+      ...room,
+      participants: (room.participants || []).map((p) => ({
+        ...p,
+        user: p.user
+          ? {
+              ...p.user,
+              branch: p.user.branch?.name || null,
+            }
+          : p.user,
+      })),
+    };
+
+    return ApiResponseUtil.success(formattedRoom);
   }
 
   async sendMessage(
@@ -289,7 +302,7 @@ export class ChatService {
       users.map((u) => ({
         id: u.id,
         username: u.username,
-        branch: u.branch?.name,
+        branch: u.branch?.name || null,
         role: u.role,
       })),
     );
@@ -319,7 +332,7 @@ export class ChatService {
       users.map((u) => ({
         id: u.id,
         username: u.username,
-        branch: u.branch?.name,
+        branch: u.branch?.name || null,
         role: u.role,
         isOnline: onlineUserIds.includes(u.id),
       })),

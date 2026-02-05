@@ -80,7 +80,10 @@ export class ChatService {
     );
     await this.chatRoomParticipantRepository.save(participantEntities);
 
-    return ApiResponseUtil.success(savedRoom, 'Chat room created successfully');
+    return ApiResponseUtil.success(
+      this.toRoomSummary(savedRoom, userId, null, 0),
+      'Chat room created successfully',
+    );
   }
 
   async getUserChatRooms(userId: number): Promise<ApiResponse> {
@@ -89,9 +92,17 @@ export class ChatService {
       .innerJoin('room.participants', 'participant', 'participant.userId = :userId', {
         userId,
       })
-      .leftJoinAndSelect('room.createdByUser', 'createdBy')
       .leftJoinAndSelect('room.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
+      .select([
+        'room.id',
+        'room.name',
+        'room.isGroupChat',
+        'room.updatedAt',
+        'participants.userId',
+        'participantUser.id',
+        'participantUser.username',
+      ])
       .orderBy('room.updatedAt', 'DESC')
       .distinct(true)
       .getMany();
@@ -101,8 +112,7 @@ export class ChatService {
       rooms.map(async (room) => {
         const lastMessage = await this.getLastMessage(room.id);
         const unreadCount = await this.getUnreadCount(room.id, userId);
-        const formattedRoom = this.formatRoomForUser(room, userId);
-        return { ...formattedRoom, lastMessage, unreadCount };
+        return this.toRoomSummary(room, userId, lastMessage, unreadCount);
       }),
     );
 
@@ -117,27 +127,30 @@ export class ChatService {
 
     const room = await this.chatRoomRepository.findOne({
       where: { id: roomId },
-      relations: ['createdByUser', 'participants', 'participants.user'],
+      relations: ['participants', 'participants.user', 'participants.user.branch'],
+      select: {
+        id: true,
+        name: true,
+        isGroupChat: true,
+        participants: {
+          userId: true,
+          user: {
+            id: true,
+            username: true,
+            role: true,
+            branch: {
+              name: true,
+            },
+          },
+        },
+      },
     });
 
     if (!room) {
       return ApiResponseUtil.error('Chat room not found');
     }
 
-    const formattedRoom = {
-      ...this.formatRoomForUser(room, userId),
-      participants: (room.participants || []).map((p) => ({
-        ...p,
-        user: p.user
-          ? {
-              ...p.user,
-              branch: p.user.branch?.name || null,
-            }
-          : p.user,
-      })),
-    };
-
-    return ApiResponseUtil.success(formattedRoom);
+    return ApiResponseUtil.success(this.toRoomDetails(room, userId));
   }
 
   async sendMessage(
@@ -162,16 +175,27 @@ export class ChatService {
     await this.chatRoomRepository.update(dto.chatRoomId, { updatedAt: new Date() });
 
     // Fetch full message with sender
-    const fullMessage = await this.chatMessageRepository.findOne({
-      where: { id: savedMessage.id },
-      relations: ['sender'],
-    });
+    const fullMessage = await this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .select([
+        'message.id',
+        'message.chatRoomId',
+        'message.senderId',
+        'message.content',
+        'message.createdAt',
+        'sender.username',
+      ])
+      .where('message.id = :id', { id: savedMessage.id })
+      .getOne();
 
-    if (options?.emit !== false && fullMessage) {
-      this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', fullMessage);
+    const mappedMessage = fullMessage ? this.toMessageDto(fullMessage) : null;
+
+    if (options?.emit !== false && mappedMessage) {
+      this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', mappedMessage);
     }
 
-    return ApiResponseUtil.success(fullMessage, 'Message sent successfully');
+    return ApiResponseUtil.success(mappedMessage, 'Message sent successfully');
   }
 
   async getMessages(
@@ -187,15 +211,25 @@ export class ChatService {
 
     const [messages, total] = await this.chatMessageRepository
       .createQueryBuilder('message')
-      .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoin('message.sender', 'sender')
+      .select([
+        'message.id',
+        'message.chatRoomId',
+        'message.senderId',
+        'message.content',
+        'message.createdAt',
+        'sender.username',
+      ])
       .where('message.chatRoomId = :roomId', { roomId })
       .orderBy('message.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
 
+    const mappedMessages = messages.reverse().map((m) => this.toMessageDto(m));
+
     return ApiResponseUtil.success({
-      messages: messages.reverse(),
+      messages: mappedMessages,
       total,
       page,
       limit,
@@ -251,7 +285,7 @@ export class ChatService {
         where: { id: existingRoom.id },
         relations: ['participants', 'participants.user'],
       });
-      return ApiResponseUtil.success(this.formatRoomForUser(hydratedRoom || existingRoom, userId1));
+      return ApiResponseUtil.success(this.toRoomSummary(hydratedRoom || existingRoom, userId1, null, 0));
     }
 
     // Create new direct chat
@@ -274,7 +308,7 @@ export class ChatService {
     );
     await this.chatRoomParticipantRepository.save(participantEntities);
 
-    return ApiResponseUtil.success(savedRoom, 'Chat room created');
+    return ApiResponseUtil.success(this.toRoomSummary(savedRoom, userId1, null, 0), 'Chat room created');
   }
 
   async getUsersForChat(userId: number, search?: string): Promise<ApiResponse> {
@@ -349,11 +383,20 @@ export class ChatService {
   }
 
   private async getLastMessage(roomId: number): Promise<ChatMessage | null> {
-    return this.chatMessageRepository.findOne({
-      where: { chatRoomId: roomId },
-      order: { createdAt: 'DESC' },
-      relations: ['sender'],
-    });
+    return this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .select([
+        'message.id',
+        'message.chatRoomId',
+        'message.senderId',
+        'message.content',
+        'message.createdAt',
+        'sender.username',
+      ])
+      .where('message.chatRoomId = :roomId', { roomId })
+      .orderBy('message.createdAt', 'DESC')
+      .getOne();
   }
 
   private async getUnreadCount(roomId: number, userId: number): Promise<number> {
@@ -375,6 +418,59 @@ export class ChatService {
     const displayName = otherParticipant?.user?.username || room.name;
 
     return { ...room, name: displayName };
+  }
+
+  private toMessageDto(message: ChatMessage) {
+    return {
+      id: message.id,
+      chatRoomId: message.chatRoomId,
+      senderId: message.senderId,
+      content: message.content,
+      createdAt: message.createdAt,
+      sender: message.sender
+        ? {
+            username: message.sender.username,
+          }
+        : undefined,
+    };
+  }
+
+  private toRoomSummary(
+    room: ChatRoom,
+    userId: number,
+    lastMessage?: ChatMessage | null,
+    unreadCount: number = 0,
+  ) {
+    const formattedRoom = this.formatRoomForUser(room, userId);
+
+    return {
+      id: formattedRoom.id,
+      name: formattedRoom.name,
+      isGroupChat: formattedRoom.isGroupChat,
+      lastMessage: lastMessage ? this.toMessageDto(lastMessage) : null,
+      unreadCount,
+    };
+  }
+
+  private toRoomDetails(room: ChatRoom, userId: number) {
+    const formattedRoom = this.formatRoomForUser(room, userId);
+
+    return {
+      id: formattedRoom.id,
+      name: formattedRoom.name,
+      isGroupChat: formattedRoom.isGroupChat,
+      participants: (room.participants || []).map((p) => ({
+        userId: p.userId,
+        user: p.user
+          ? {
+              id: p.user.id,
+              username: p.user.username,
+              branch: p.user.branch?.name || null,
+              role: p.user.role,
+            }
+          : undefined,
+      })),
+    };
   }
 
   async isUserInRoom(roomId: number, userId: number): Promise<boolean> {

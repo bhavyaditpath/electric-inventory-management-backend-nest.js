@@ -90,6 +90,8 @@ export class ChatService {
         userId,
       })
       .leftJoinAndSelect('room.createdByUser', 'createdBy')
+      .leftJoinAndSelect('room.participants', 'participants')
+      .leftJoinAndSelect('participants.user', 'participantUser')
       .orderBy('room.updatedAt', 'DESC')
       .distinct(true)
       .getMany();
@@ -99,11 +101,8 @@ export class ChatService {
       rooms.map(async (room) => {
         const lastMessage = await this.getLastMessage(room.id);
         const unreadCount = await this.getUnreadCount(room.id, userId);
-        return {
-          ...room,
-          lastMessage,
-          unreadCount,
-        };
+        const formattedRoom = this.formatRoomForUser(room, userId);
+        return { ...formattedRoom, lastMessage, unreadCount };
       }),
     );
 
@@ -126,7 +125,7 @@ export class ChatService {
     }
 
     const formattedRoom = {
-      ...room,
+      ...this.formatRoomForUser(room, userId),
       participants: (room.participants || []).map((p) => ({
         ...p,
         user: p.user
@@ -248,7 +247,11 @@ export class ChatService {
       .getOne();
 
     if (existingRoom) {
-      return ApiResponseUtil.success(existingRoom);
+      const hydratedRoom = await this.chatRoomRepository.findOne({
+        where: { id: existingRoom.id },
+        relations: ['participants', 'participants.user'],
+      });
+      return ApiResponseUtil.success(this.formatRoomForUser(hydratedRoom || existingRoom, userId1));
     }
 
     // Create new direct chat
@@ -287,7 +290,10 @@ export class ChatService {
       .andWhere('user.isRemoved = :isRemoved', { isRemoved: false });
 
     if (requester.role !== UserRole.ADMIN) {
-      query.andWhere('user.branchId = :branchId', { branchId: requester.branchId });
+      query.andWhere('(user.branchId = :branchId OR user.role = :adminRole)', {
+        branchId: requester.branchId,
+        adminRole: UserRole.ADMIN,
+      });
     }
 
     if (search) {
@@ -321,7 +327,10 @@ export class ChatService {
       .andWhere('user.isRemoved = :isRemoved', { isRemoved: false });
 
     if (requester.role !== UserRole.ADMIN) {
-      query.andWhere('user.branchId = :branchId', { branchId: requester.branchId });
+      query.andWhere('(user.branchId = :branchId OR user.role = :adminRole)', {
+        branchId: requester.branchId,
+        adminRole: UserRole.ADMIN,
+      });
     }
 
     const users = await query.getMany();
@@ -355,6 +364,17 @@ export class ChatService {
         isRead: false,
       },
     });
+  }
+
+  private formatRoomForUser(room: ChatRoom, userId: number) {
+    if (!room || room.isGroupChat) {
+      return room;
+    }
+
+    const otherParticipant = room.participants?.find((p) => p.userId !== userId);
+    const displayName = otherParticipant?.user?.username || room.name;
+
+    return { ...room, name: displayName };
   }
 
   async isUserInRoom(roomId: number, userId: number): Promise<boolean> {

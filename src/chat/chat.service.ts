@@ -6,6 +6,7 @@ import { ChatMessage } from './entities/chat-message.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
+import { AddParticipantsDto } from './dto/add-participants.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { ChatGateway } from './chat.gateway';
@@ -309,6 +310,101 @@ export class ChatService {
     await this.chatRoomParticipantRepository.save(participantEntities);
 
     return ApiResponseUtil.success(this.toRoomSummary(savedRoom, userId1, null, 0), 'Chat room created');
+  }
+
+  async addParticipants(
+    roomId: number,
+    dto: AddParticipantsDto,
+    requesterId: number,
+  ): Promise<ApiResponse> {
+    const requester = await this.userRepository.findOne({ where: { id: requesterId } });
+    if (!requester) {
+      return ApiResponseUtil.error('User not found');
+    }
+
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: roomId },
+      select: { id: true, isGroupChat: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+    if (!room.isGroupChat) {
+      return ApiResponseUtil.error('Cannot add participants to a direct chat');
+    }
+
+    if (requester.role !== UserRole.ADMIN) {
+      const isParticipant = await this.isUserInRoom(roomId, requesterId);
+      if (!isParticipant) {
+        return ApiResponseUtil.error('Access denied');
+      }
+    }
+
+    const uniqueIds = Array.from(new Set(dto.participantIds || []));
+    if (uniqueIds.length === 0) {
+      return ApiResponseUtil.error('No participants provided');
+    }
+
+    const existingRows = await this.chatRoomParticipantRepository
+      .createQueryBuilder('p')
+      .select('p.userId', 'userId')
+      .where('p.chatRoomId = :roomId', { roomId })
+      .getRawMany<{ userId: number }>();
+    const existingIds = new Set(existingRows.map((row) => row.userId));
+    const newIds = uniqueIds.filter((id) => !existingIds.has(id));
+
+    if (newIds.length === 0) {
+      return ApiResponseUtil.success(null, 'No new participants to add');
+    }
+
+    const users = await this.userRepository.find({
+      where: { id: In(newIds), isRemoved: false },
+    });
+    if (users.length !== newIds.length) {
+      return ApiResponseUtil.error('One or more users not found');
+    }
+
+    if (requester.role !== UserRole.ADMIN) {
+      const differentBranch = users.some((u) => u.branchId !== requester.branchId);
+      if (differentBranch) {
+        return ApiResponseUtil.error('Cannot add users from other branches');
+      }
+    }
+
+    const participantEntities = newIds.map((participantId) =>
+      this.chatRoomParticipantRepository.create({
+        chatRoomId: roomId,
+        userId: participantId,
+        createdBy: requesterId,
+      }),
+    );
+    await this.chatRoomParticipantRepository.save(participantEntities);
+
+    const updatedRoom = await this.chatRoomRepository.findOne({
+      where: { id: roomId },
+      relations: ['participants', 'participants.user', 'participants.user.branch'],
+      select: {
+        id: true,
+        name: true,
+        isGroupChat: true,
+        participants: {
+          userId: true,
+          user: {
+            id: true,
+            username: true,
+            role: true,
+            branch: {
+              name: true,
+            },
+          },
+        },
+      },
+    });
+
+    return ApiResponseUtil.success(
+      updatedRoom ? this.toRoomDetails(updatedRoom, requesterId) : null,
+      'Participants added',
+    );
   }
 
   async getUsersForChat(userId: number, search?: string): Promise<ApiResponse> {

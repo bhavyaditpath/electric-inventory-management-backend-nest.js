@@ -12,6 +12,7 @@ import {
 import { ChatService } from './chat.service';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { AddParticipantsDto } from './dto/add-participants.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiResponseUtil } from '../shared/api-response';
 
@@ -41,6 +42,15 @@ export class ChatController {
     @Request() req,
   ) {
     return this.chatService.getOrCreateDirectChat(req.user.id, userId);
+  }
+
+  @Post('rooms/:roomId/participants')
+  async addParticipants(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Body() dto: AddParticipantsDto,
+    @Request() req,
+  ) {
+    return this.chatService.addParticipants(roomId, dto, req.user.id);
   }
 
   @Get('users')

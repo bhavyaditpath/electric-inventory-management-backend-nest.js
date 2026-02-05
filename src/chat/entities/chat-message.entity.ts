@@ -1,7 +1,8 @@
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { ChatRoom } from './chat-room.entity';
 import { User } from '../../user/entities/user.entity';
 import { BaseEntityClass } from '../../shared/base.entity';
+import { ChatAttachment } from './chat-attachment.entity';
 
 @Entity('chat_messages')
 export class ChatMessage extends BaseEntityClass {
@@ -21,6 +22,9 @@ export class ChatMessage extends BaseEntityClass {
 
   @Column({ type: 'text' })
   content: string;
+
+  @OneToMany(() => ChatAttachment, (attachment) => attachment.message)
+  attachments: ChatAttachment[];
 
   @Column({ type: 'boolean', default: false })
   isRead: boolean;

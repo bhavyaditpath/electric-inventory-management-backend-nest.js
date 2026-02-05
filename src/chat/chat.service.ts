@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
+import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
@@ -19,6 +20,8 @@ export class ChatService {
     private chatRoomRepository: Repository<ChatRoom>,
     @InjectRepository(ChatMessage)
     private chatMessageRepository: Repository<ChatMessage>,
+    @InjectRepository(ChatAttachment)
+    private chatAttachmentRepository: Repository<ChatAttachment>,
     @InjectRepository(ChatRoomParticipant)
     private chatRoomParticipantRepository: Repository<ChatRoomParticipant>,
     @InjectRepository(User)
@@ -158,19 +161,42 @@ export class ChatService {
     dto: SendMessageDto,
     senderId: number,
     options?: { emit?: boolean },
+    files?: Array<{
+      originalname: string;
+      mimetype: string;
+      size: number;
+      filename: string;
+    }>,
   ): Promise<ApiResponse> {
     const isParticipant = await this.isUserInRoom(dto.chatRoomId, senderId);
     if (!isParticipant) {
       return ApiResponseUtil.error('Access denied');
     }
 
+    if (!dto.content && (!files || files.length === 0)) {
+      return ApiResponseUtil.error('Message must include text or at least one attachment');
+    }
+
     const message = this.chatMessageRepository.create({
       chatRoomId: dto.chatRoomId,
       senderId,
-      content: dto.content,
+      content: dto.content ?? '',
     });
 
     const savedMessage = await this.chatMessageRepository.save(message);
+
+    if (files && files.length > 0) {
+      const attachmentEntities = files.map((file) =>
+        this.chatAttachmentRepository.create({
+          messageId: savedMessage.id,
+          url: `/uploads/chat/${file.filename}`,
+          mimeType: file.mimetype,
+          fileName: file.originalname,
+          size: file.size,
+        }),
+      );
+      await this.chatAttachmentRepository.save(attachmentEntities);
+    }
 
     // Update room's updatedAt
     await this.chatRoomRepository.update(dto.chatRoomId, { updatedAt: new Date() });
@@ -179,6 +205,7 @@ export class ChatService {
     const fullMessage = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
       .select([
         'message.id',
         'message.chatRoomId',
@@ -186,6 +213,12 @@ export class ChatService {
         'message.content',
         'message.createdAt',
         'sender.username',
+        'attachments.id',
+        'attachments.messageId',
+        'attachments.url',
+        'attachments.mimeType',
+        'attachments.fileName',
+        'attachments.size',
       ])
       .where('message.id = :id', { id: savedMessage.id })
       .getOne();
@@ -213,6 +246,7 @@ export class ChatService {
     const [messages, total] = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
       .select([
         'message.id',
         'message.chatRoomId',
@@ -220,9 +254,16 @@ export class ChatService {
         'message.content',
         'message.createdAt',
         'sender.username',
+        'attachments.id',
+        'attachments.messageId',
+        'attachments.url',
+        'attachments.mimeType',
+        'attachments.fileName',
+        'attachments.size',
       ])
       .where('message.chatRoomId = :roomId', { roomId })
       .orderBy('message.createdAt', 'DESC')
+      .distinct(true)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -482,6 +523,7 @@ export class ChatService {
     return this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
       .select([
         'message.id',
         'message.chatRoomId',
@@ -489,6 +531,12 @@ export class ChatService {
         'message.content',
         'message.createdAt',
         'sender.username',
+        'attachments.id',
+        'attachments.messageId',
+        'attachments.url',
+        'attachments.mimeType',
+        'attachments.fileName',
+        'attachments.size',
       ])
       .where('message.chatRoomId = :roomId', { roomId })
       .orderBy('message.createdAt', 'DESC')
@@ -523,6 +571,13 @@ export class ChatService {
       senderId: message.senderId,
       content: message.content,
       createdAt: message.createdAt,
+      attachments: (message.attachments || []).map((a) => ({
+        id: a.id,
+        url: a.url,
+        mimeType: a.mimeType,
+        fileName: a.fileName,
+        size: a.size,
+      })),
       sender: message.sender
         ? {
             username: message.sender.username,

@@ -12,11 +12,14 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
+  StreamableFile,
+  NotFoundException,
+  Res,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { join, extname } from 'path';
-import { mkdirSync } from 'fs';
+import { join, extname, basename } from 'path';
+import { mkdirSync, existsSync, createReadStream } from 'fs';
 import { ChatService } from './chat.service';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -134,6 +137,35 @@ export class ChatController {
     @Request() req,
   ) {
     return this.chatService.sendMessage(dto, req.user.id, undefined, files);
+  }
+
+  @Get('attachments/:attachmentId/download')
+  async downloadAttachment(
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+    @Request() req,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const attachment = await this.chatService.getAttachmentForDownload(
+      attachmentId,
+      req.user.id,
+    );
+    if (!attachment) {
+      throw new NotFoundException('Attachment not found');
+    }
+
+    const storedName = basename(attachment.url);
+    const filePath = join(process.cwd(), 'uploads', 'chat', storedName);
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('File not found');
+    }
+
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(attachment.fileName)}"`,
+    );
+
+    return new StreamableFile(createReadStream(filePath));
   }
 
   @Delete('messages/:messageId')

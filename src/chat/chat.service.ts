@@ -769,6 +769,39 @@ export class ChatService {
     return ApiResponseUtil.success({ pinned }, 'Pin updated');
   }
 
+  async getAttachmentForDownload(
+    attachmentId: number,
+    userId: number,
+  ): Promise<ChatAttachment | null> {
+    return this.chatAttachmentRepository
+      .createQueryBuilder('attachment')
+      .leftJoin('attachment.message', 'message')
+      .leftJoin('message.chatRoom', 'room')
+      .leftJoin(
+        'room.participants',
+        'participant',
+        'participant.userId = :userId AND participant.isRemoved = :isRemoved',
+        { userId, isRemoved: false },
+      )
+      .select([
+        'attachment.id',
+        'attachment.url',
+        'attachment.mimeType',
+        'attachment.fileName',
+        'attachment.size',
+        'message.id',
+        'message.isRemoved',
+        'room.id',
+        'room.isRemoved',
+        'participant.id',
+      ])
+      .where('attachment.id = :attachmentId', { attachmentId })
+      .andWhere('message.isRemoved = :messageRemoved', { messageRemoved: false })
+      .andWhere('room.isRemoved = :roomRemoved', { roomRemoved: false })
+      .andWhere('participant.id IS NOT NULL')
+      .getOne();
+  }
+
   private async isRoomPinned(roomId: number, userId: number): Promise<boolean> {
     const pin = await this.chatRoomPinRepository.findOne({
       where: { chatRoomId: roomId, userId },

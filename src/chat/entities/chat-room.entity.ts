@@ -3,6 +3,7 @@ import { BaseEntityClass } from '../../shared/base.entity';
 import { User } from '../../user/entities/user.entity';
 import { ChatMessage } from './chat-message.entity';
 import { ChatRoomParticipant } from './chat-room-participant.entity';
+import { ChatRoomPin } from './chat-room-pin.entity';
 
 @Entity('chat_rooms')
 export class ChatRoom extends BaseEntityClass {
@@ -22,4 +23,7 @@ export class ChatRoom extends BaseEntityClass {
 
   @OneToMany(() => ChatRoomParticipant, (participant) => participant.chatRoom)
   participants: ChatRoomParticipant[];
+
+  @OneToMany(() => ChatRoomPin, (pin) => pin.chatRoom)
+  pins: ChatRoomPin[];
 }

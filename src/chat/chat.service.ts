@@ -5,6 +5,7 @@ import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
+import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
@@ -22,6 +23,8 @@ export class ChatService {
     private chatMessageRepository: Repository<ChatMessage>,
     @InjectRepository(ChatAttachment)
     private chatAttachmentRepository: Repository<ChatAttachment>,
+    @InjectRepository(ChatRoomPin)
+    private chatRoomPinRepository: Repository<ChatRoomPin>,
     @InjectRepository(ChatRoomParticipant)
     private chatRoomParticipantRepository: Repository<ChatRoomParticipant>,
     @InjectRepository(User)
@@ -96,18 +99,23 @@ export class ChatService {
       .innerJoin('room.participants', 'participant', 'participant.userId = :userId', {
         userId,
       })
+      .leftJoinAndSelect('room.pins', 'pin', 'pin.userId = :userId', { userId })
       .leftJoinAndSelect('room.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
+      .where('room.isRemoved = :isRemoved', { isRemoved: false })
       .select([
         'room.id',
         'room.name',
         'room.isGroupChat',
         'room.updatedAt',
+        'pin.id',
         'participants.userId',
         'participantUser.id',
         'participantUser.username',
       ])
-      .orderBy('room.updatedAt', 'DESC')
+      .addSelect('CASE WHEN pin.id IS NULL THEN 1 ELSE 0 END', 'pinOrder')
+      .orderBy('"pinOrder"', 'ASC')
+      .addOrderBy('room.updatedAt', 'DESC')
       .distinct(true)
       .getMany();
 
@@ -116,7 +124,8 @@ export class ChatService {
       rooms.map(async (room) => {
         const lastMessage = await this.getLastMessage(room.id);
         const unreadCount = await this.getUnreadCount(room.id, userId);
-        return this.toRoomSummary(room, userId, lastMessage, unreadCount);
+        const pinned = !!room.pins?.length;
+        return this.toRoomSummary(room, userId, lastMessage, unreadCount, pinned);
       }),
     );
 
@@ -130,7 +139,7 @@ export class ChatService {
     }
 
     const room = await this.chatRoomRepository.findOne({
-      where: { id: roomId },
+      where: { id: roomId, isRemoved: false },
       relations: ['participants', 'participants.user', 'participants.user.branch'],
       select: {
         id: true,
@@ -154,7 +163,8 @@ export class ChatService {
       return ApiResponseUtil.error('Chat room not found');
     }
 
-    return ApiResponseUtil.success(this.toRoomDetails(room, userId));
+    const pinned = await this.isRoomPinned(roomId, userId);
+    return ApiResponseUtil.success(this.toRoomDetails(room, userId, pinned));
   }
 
   async sendMessage(
@@ -168,6 +178,14 @@ export class ChatService {
       filename: string;
     }>,
   ): Promise<ApiResponse> {
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: dto.chatRoomId, isRemoved: false },
+      select: { id: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+
     const isParticipant = await this.isUserInRoom(dto.chatRoomId, senderId);
     if (!isParticipant) {
       return ApiResponseUtil.error('Access denied');
@@ -253,6 +271,7 @@ export class ChatService {
         'message.senderId',
         'message.content',
         'message.createdAt',
+        'message.isRemoved',
         'sender.username',
         'attachments.id',
         'attachments.messageId',
@@ -262,6 +281,7 @@ export class ChatService {
         'attachments.size',
       ])
       .where('message.chatRoomId = :roomId', { roomId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .orderBy('message.createdAt', 'DESC')
       .distinct(true)
       .skip((page - 1) * limit)
@@ -292,6 +312,7 @@ export class ChatService {
       .where('chatRoomId = :roomId', { roomId })
       .andWhere('senderId != :userId', { userId })
       .andWhere('isRead = :isRead', { isRead: false })
+      .andWhere('isRemoved = :isRemoved', { isRemoved: false })
       .execute();
 
     return ApiResponseUtil.success(null, 'Messages marked as read');
@@ -320,6 +341,7 @@ export class ChatService {
       .innerJoin('room.participants', 'p1', 'p1.userId = :userId1', { userId1 })
       .innerJoin('room.participants', 'p2', 'p2.userId = :userId2', { userId2 })
       .where('room.isGroupChat = :isGroupChat', { isGroupChat: false })
+      .andWhere('room.isRemoved = :isRemoved', { isRemoved: false })
       .getOne();
 
     if (existingRoom) {
@@ -530,6 +552,7 @@ export class ChatService {
         'message.senderId',
         'message.content',
         'message.createdAt',
+        'message.isRemoved',
         'sender.username',
         'attachments.id',
         'attachments.messageId',
@@ -539,6 +562,7 @@ export class ChatService {
         'attachments.size',
       ])
       .where('message.chatRoomId = :roomId', { roomId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .orderBy('message.createdAt', 'DESC')
       .getOne();
   }
@@ -571,6 +595,7 @@ export class ChatService {
       senderId: message.senderId,
       content: message.content,
       createdAt: message.createdAt,
+      isRemoved: message.isRemoved,
       attachments: (message.attachments || []).map((a) => ({
         id: a.id,
         url: a.url,
@@ -591,6 +616,7 @@ export class ChatService {
     userId: number,
     lastMessage?: ChatMessage | null,
     unreadCount: number = 0,
+    pinned: boolean = false,
   ) {
     const formattedRoom = this.formatRoomForUser(room, userId);
 
@@ -600,16 +626,18 @@ export class ChatService {
       isGroupChat: formattedRoom.isGroupChat,
       lastMessage: lastMessage ? this.toMessageDto(lastMessage) : null,
       unreadCount,
+      pinned,
     };
   }
 
-  private toRoomDetails(room: ChatRoom, userId: number) {
+  private toRoomDetails(room: ChatRoom, userId: number, pinned: boolean = false) {
     const formattedRoom = this.formatRoomForUser(room, userId);
 
     return {
       id: formattedRoom.id,
       name: formattedRoom.name,
       isGroupChat: formattedRoom.isGroupChat,
+      pinned,
       participants: (room.participants || []).map((p) => ({
         userId: p.userId,
         user: p.user
@@ -629,5 +657,107 @@ export class ChatService {
       where: { chatRoomId: roomId, userId },
     });
     return count > 0;
+  }
+
+  async deleteChatRoom(roomId: number, userId: number): Promise<ApiResponse> {
+    const requester = await this.userRepository.findOne({ where: { id: userId } });
+    if (!requester) {
+      return ApiResponseUtil.error('User not found');
+    }
+
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: roomId, isRemoved: false },
+      select: { id: true, createdBy: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+
+    const isAllowed =
+      requester.role === UserRole.ADMIN || (room.createdBy && room.createdBy === userId);
+    if (!isAllowed) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    await this.chatRoomRepository.update(roomId, { isRemoved: true, updatedBy: userId });
+    await this.chatMessageRepository.update(
+      { chatRoomId: roomId },
+      { isRemoved: true, updatedBy: userId },
+    );
+
+    return ApiResponseUtil.success(null, 'Chat room deleted');
+  }
+
+  async deleteMessage(messageId: number, userId: number): Promise<ApiResponse> {
+    const requester = await this.userRepository.findOne({ where: { id: userId } });
+    if (!requester) {
+      return ApiResponseUtil.error('User not found');
+    }
+
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, isRemoved: false },
+      select: { id: true, senderId: true, chatRoomId: true },
+    });
+    if (!message) {
+      return ApiResponseUtil.error('Message not found');
+    }
+
+    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const canDelete =
+      requester.role === UserRole.ADMIN || message.senderId === userId;
+    if (!canDelete) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    await this.chatMessageRepository.update(messageId, { isRemoved: true, updatedBy: userId });
+
+    this.chatGateway.sendToRoom(message.chatRoomId, 'messageDeleted', {
+      id: messageId,
+      chatRoomId: message.chatRoomId,
+    });
+
+    return ApiResponseUtil.success(null, 'Message deleted');
+  }
+
+  async setRoomPinned(roomId: number, userId: number, pinned: boolean): Promise<ApiResponse> {
+    const isParticipant = await this.isUserInRoom(roomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: roomId, isRemoved: false },
+      select: { id: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+
+    const existing = await this.chatRoomPinRepository.findOne({
+      where: { chatRoomId: roomId, userId },
+    });
+
+    if (pinned) {
+      if (!existing) {
+        const pin = this.chatRoomPinRepository.create({ chatRoomId: roomId, userId });
+        await this.chatRoomPinRepository.save(pin);
+      }
+    } else if (existing) {
+      await this.chatRoomPinRepository.delete({ chatRoomId: roomId, userId });
+    }
+
+    return ApiResponseUtil.success({ pinned }, 'Pin updated');
+  }
+
+  private async isRoomPinned(roomId: number, userId: number): Promise<boolean> {
+    const pin = await this.chatRoomPinRepository.findOne({
+      where: { chatRoomId: roomId, userId },
+      select: { id: true },
+    });
+    return !!pin;
   }
 }

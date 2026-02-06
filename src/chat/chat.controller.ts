@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
   ParseIntPipe,
+  Delete,
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
@@ -20,6 +21,7 @@ import { ChatService } from './chat.service';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
+import { PinChatRoomDto } from './dto/pin-chat-room.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiResponseUtil } from '../shared/api-response';
 
@@ -93,6 +95,15 @@ export class ChatController {
     return this.chatService.addParticipants(roomId, dto, req.user.id);
   }
 
+  @Post('rooms/:roomId/pin')
+  async pinRoom(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Body() dto: PinChatRoomDto,
+    @Request() req,
+  ) {
+    return this.chatService.setRoomPinned(roomId, req.user.id, dto.pinned);
+  }
+
   @Get('users')
   async getUsers(@Request() req, @Query('search') search?: string) {
     return this.chatService.getUsersForChat(req.user.id, search);
@@ -125,6 +136,11 @@ export class ChatController {
     return this.chatService.sendMessage(dto, req.user.id, undefined, files);
   }
 
+  @Delete('messages/:messageId')
+  async deleteMessage(@Param('messageId', ParseIntPipe) messageId: number, @Request() req) {
+    return this.chatService.deleteMessage(messageId, req.user.id);
+  }
+
   @Get('rooms/:roomId/messages')
   async getMessages(
     @Param('roomId', ParseIntPipe) roomId: number,
@@ -140,5 +156,10 @@ export class ChatController {
   @Post('rooms/:roomId/read')
   async markAsRead(@Param('roomId', ParseIntPipe) roomId: number, @Request() req) {
     return this.chatService.markMessagesAsRead(roomId, req.user.id);
+  }
+
+  @Delete('rooms/:roomId')
+  async deleteRoom(@Param('roomId', ParseIntPipe) roomId: number, @Request() req) {
+    return this.chatService.deleteChatRoom(roomId, req.user.id);
   }
 }

@@ -96,11 +96,19 @@ export class ChatService {
   async getUserChatRooms(userId: number): Promise<ApiResponse> {
     const rooms = await this.chatRoomRepository
       .createQueryBuilder('room')
-      .innerJoin('room.participants', 'participant', 'participant.userId = :userId', {
-        userId,
-      })
+      .innerJoin(
+        'room.participants',
+        'participant',
+        'participant.userId = :userId AND participant.isRemoved = :isRemoved',
+        { userId, isRemoved: false },
+      )
       .leftJoinAndSelect('room.pins', 'pin', 'pin.userId = :userId', { userId })
-      .leftJoinAndSelect('room.participants', 'participants')
+      .leftJoinAndSelect(
+        'room.participants',
+        'participants',
+        'participants.isRemoved = :activeOnly',
+        { activeOnly: false },
+      )
       .leftJoinAndSelect('participants.user', 'participantUser')
       .where('room.isRemoved = :isRemoved', { isRemoved: false })
       .select([
@@ -147,6 +155,7 @@ export class ChatService {
         isGroupChat: true,
         participants: {
           userId: true,
+          isRemoved: true,
           user: {
             id: true,
             username: true,
@@ -345,6 +354,10 @@ export class ChatService {
       .getOne();
 
     if (existingRoom) {
+      await this.chatRoomParticipantRepository.update(
+        { chatRoomId: existingRoom.id, userId: In([userId1, userId2]) },
+        { isRemoved: false },
+      );
       const hydratedRoom = await this.chatRoomRepository.findOne({
         where: { id: existingRoom.id },
         relations: ['participants', 'participants.user'],
@@ -410,11 +423,18 @@ export class ChatService {
 
     const existingRows = await this.chatRoomParticipantRepository
       .createQueryBuilder('p')
-      .select('p.userId', 'userId')
+      .select(['p.userId AS "userId"', 'p.isRemoved AS "isRemoved"'])
       .where('p.chatRoomId = :roomId', { roomId })
-      .getRawMany<{ userId: number }>();
-    const existingIds = new Set(existingRows.map((row) => row.userId));
-    const newIds = uniqueIds.filter((id) => !existingIds.has(id));
+      .getRawMany<{ userId: number; isRemoved: boolean }>();
+    const existingActive = new Set(
+      existingRows.filter((row) => !row.isRemoved).map((row) => row.userId),
+    );
+    const existingRemoved = new Set(
+      existingRows.filter((row) => row.isRemoved).map((row) => row.userId),
+    );
+    const newIds = uniqueIds.filter((id) => !existingActive.has(id));
+    const reAddIds = newIds.filter((id) => existingRemoved.has(id));
+    const createIds = newIds.filter((id) => !existingRemoved.has(id));
 
     if (newIds.length === 0) {
       return ApiResponseUtil.success(null, 'No new participants to add');
@@ -434,14 +454,23 @@ export class ChatService {
       }
     }
 
-    const participantEntities = newIds.map((participantId) =>
-      this.chatRoomParticipantRepository.create({
-        chatRoomId: roomId,
-        userId: participantId,
-        createdBy: requesterId,
-      }),
-    );
-    await this.chatRoomParticipantRepository.save(participantEntities);
+    if (reAddIds.length > 0) {
+      await this.chatRoomParticipantRepository.update(
+        { chatRoomId: roomId, userId: In(reAddIds) },
+        { isRemoved: false, updatedBy: requesterId },
+      );
+    }
+
+    if (createIds.length > 0) {
+      const participantEntities = createIds.map((participantId) =>
+        this.chatRoomParticipantRepository.create({
+          chatRoomId: roomId,
+          userId: participantId,
+          createdBy: requesterId,
+        }),
+      );
+      await this.chatRoomParticipantRepository.save(participantEntities);
+    }
 
     const updatedRoom = await this.chatRoomRepository.findOne({
       where: { id: roomId },
@@ -638,54 +667,41 @@ export class ChatService {
       name: formattedRoom.name,
       isGroupChat: formattedRoom.isGroupChat,
       pinned,
-      participants: (room.participants || []).map((p) => ({
-        userId: p.userId,
-        user: p.user
-          ? {
-              id: p.user.id,
-              username: p.user.username,
-              branch: p.user.branch?.name || null,
-              role: p.user.role,
-            }
-          : undefined,
-      })),
+      participants: (room.participants || [])
+        .filter((p) => !p.isRemoved)
+        .map((p) => ({
+          userId: p.userId,
+          user: p.user
+            ? {
+                id: p.user.id,
+                username: p.user.username,
+                branch: p.user.branch?.name || null,
+                role: p.user.role,
+              }
+            : undefined,
+        })),
     };
   }
 
   async isUserInRoom(roomId: number, userId: number): Promise<boolean> {
     const count = await this.chatRoomParticipantRepository.count({
-      where: { chatRoomId: roomId, userId },
+      where: { chatRoomId: roomId, userId, isRemoved: false },
     });
     return count > 0;
   }
 
   async deleteChatRoom(roomId: number, userId: number): Promise<ApiResponse> {
-    const requester = await this.userRepository.findOne({ where: { id: userId } });
-    if (!requester) {
-      return ApiResponseUtil.error('User not found');
-    }
-
-    const room = await this.chatRoomRepository.findOne({
-      where: { id: roomId, isRemoved: false },
-      select: { id: true, createdBy: true },
-    });
-    if (!room) {
-      return ApiResponseUtil.error('Chat room not found');
-    }
-
-    const isAllowed =
-      requester.role === UserRole.ADMIN || (room.createdBy && room.createdBy === userId);
-    if (!isAllowed) {
+    const isParticipant = await this.isUserInRoom(roomId, userId);
+    if (!isParticipant) {
       return ApiResponseUtil.error('Access denied');
     }
 
-    await this.chatRoomRepository.update(roomId, { isRemoved: true, updatedBy: userId });
-    await this.chatMessageRepository.update(
-      { chatRoomId: roomId },
+    await this.chatRoomParticipantRepository.update(
+      { chatRoomId: roomId, userId },
       { isRemoved: true, updatedBy: userId },
     );
 
-    return ApiResponseUtil.success(null, 'Chat room deleted');
+    return ApiResponseUtil.success(null, 'Chat room removed for you');
   }
 
   async deleteMessage(messageId: number, userId: number): Promise<ApiResponse> {

@@ -159,7 +159,7 @@ For development and testing, we use **Mailtrap** - a fake SMTP service that capt
    EMAIL_USER=your_mailtrap_username
    EMAIL_PASS=your_mailtrap_password
    EMAIL_FROM=noreply@yourapp.com
-   FRONTEND_URL=http://localhost:3000
+   FRONTEND_URL=http://localhost:3005
    ```
 
 5. **Test the Setup**: When you trigger forgot password, check your Mailtrap inbox to see the captured email.
@@ -239,7 +239,7 @@ npm install --save-dev @types/passport-jwt
    GOOGLE_CLIENT_ID=your_google_client_id
    GOOGLE_CLIENT_SECRET=your_google_client_secret
    GOOGLE_CALLBACK_URL=http://localhost:3002/auth/google/callback
-   FRONTEND_URL=http://localhost:3000
+   FRONTEND_URL=http://localhost:3005
    DEFAULT_BRANCH_ID=1
    ```
 

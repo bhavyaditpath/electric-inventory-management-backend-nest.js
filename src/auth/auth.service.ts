@@ -6,6 +6,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { HashUtil } from '../utils/hash.util';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
+import { Branch } from '../branch/entities/branch.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { LoginResponse } from './types/auth.types';
@@ -20,6 +21,8 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(Branch)
+    private branchRepo: Repository<Branch>,
     private jwtService: JwtService,
     private emailService: EmailService,
     private configService: ConfigService
@@ -125,7 +128,7 @@ export class AuthService {
 
   async googleLogin(req: any, res: Response): Promise<void> {
     if (!req.user) {
-      res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/login?error=google_auth_failed`);
+      res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/auth/login?error=google_auth_failed`);
       return;
     }
 
@@ -146,33 +149,39 @@ export class AuthService {
         ]
       });
 
-      if (existingUser) {
-        // Link Google to existing user
-        existingUser.googleId = googleId;
-        existingUser.firstName = firstName;
-        existingUser.lastName = lastName;
-        existingUser.profilePicture = picture;
-        existingUser.isEmailVerified = true;
-
-        user = await this.userRepo.save(existingUser);
-      } else {
-        // Create new Google user
-        const defaultBranchId = this.configService.get<number>('DEFAULT_BRANCH_ID') || 1;
-
-        user = this.userRepo.create({
-          username: email,
-          email,
-          googleId,
-          firstName,
-          lastName,
-          profilePicture: picture,
-          isEmailVerified: true,
-          role: UserRole.BRANCH,
-          branchId: defaultBranchId
-        });
-
-        user = await this.userRepo.save(user);
+      if (!existingUser) {
+        res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/auth/login`);
+        return;
       }
+
+      // Ensure user's branch exists before allowing login
+      const branchExists = await this.branchRepo.exist({
+        where: { id: existingUser.branchId }
+      });
+
+      if (!branchExists) {
+        res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/auth/login`);
+        return;
+      }
+
+      // Link Google to existing user
+      existingUser.googleId = googleId;
+      existingUser.firstName = firstName;
+      existingUser.lastName = lastName;
+      existingUser.profilePicture = picture;
+      existingUser.isEmailVerified = true;
+
+      user = await this.userRepo.save(existingUser);
+    }
+
+    // If user was found by googleId, ensure their branch exists
+    const branchExists = await this.branchRepo.exist({
+      where: { id: user.branchId }
+    });
+
+    if (!branchExists) {
+      res.redirect(`${this.configService.get<string>('FRONTEND_URL')}/auth/login`);
+      return;
     }
 
     const tokens = this.generateTokens(user);

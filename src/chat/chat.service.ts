@@ -10,6 +10,7 @@ import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { RemoveParticipantDto } from './dto/remove-participant.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { ChatGateway } from './chat.gateway';
 import { UserRole } from '../shared/enums/role.enum';
@@ -31,7 +32,7 @@ export class ChatService {
     private userRepository: Repository<User>,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
-  ) {}
+  ) { }
 
   async createChatRoom(dto: CreateChatRoomDto, userId: number): Promise<ApiResponse> {
     const requester = await this.userRepository.findOne({ where: { id: userId } });
@@ -121,13 +122,15 @@ export class ChatService {
         'participantUser.id',
         'participantUser.username',
       ])
-      .addSelect('CASE WHEN pin.id IS NULL THEN 1 ELSE 0 END', 'pinOrder')
-      .orderBy('"pinOrder"', 'ASC')
-      .addOrderBy('room.updatedAt', 'DESC')
       .distinct(true)
       .getMany();
 
     // Get last message and unread count for each room
+    const roomUpdatedAtById = new Map<number, Date | null>();
+    rooms.forEach((room) => {
+      roomUpdatedAtById.set(room.id, room.updatedAt ?? null);
+    });
+
     const roomsWithMeta = await Promise.all(
       rooms.map(async (room) => {
         const lastMessage = await this.getLastMessage(room.id);
@@ -137,7 +140,40 @@ export class ChatService {
       }),
     );
 
-    return ApiResponseUtil.success(roomsWithMeta);
+    const sortedRooms = roomsWithMeta.sort((a, b) => {
+      if (a.pinned !== b.pinned) {
+        return a.pinned ? -1 : 1;
+      }
+
+      const aHasMessage = !!a.lastMessage;
+      const bHasMessage = !!b.lastMessage;
+      if (aHasMessage !== bHasMessage) {
+        return aHasMessage ? -1 : 1;
+      }
+
+      if (aHasMessage && bHasMessage) {
+        const aTime = new Date(a.lastMessage!.createdAt).getTime();
+        const bTime = new Date(b.lastMessage!.createdAt).getTime();
+        if (aTime !== bTime) {
+          return bTime - aTime;
+        }
+      }
+
+      // Fallback ordering for rooms with no messages (or equal timestamps)
+      const aUpdatedAt = roomUpdatedAtById.get(a.id);
+      const bUpdatedAt = roomUpdatedAtById.get(b.id);
+      if (aUpdatedAt && bUpdatedAt) {
+        const aTime = new Date(aUpdatedAt).getTime();
+        const bTime = new Date(bUpdatedAt).getTime();
+        if (aTime !== bTime) {
+          return bTime - aTime;
+        }
+      }
+
+      return b.id - a.id;
+    });
+
+    return ApiResponseUtil.success(sortedRooms);
   }
 
   async getChatRoom(roomId: number, userId: number): Promise<ApiResponse> {
@@ -153,7 +189,9 @@ export class ChatService {
         id: true,
         name: true,
         isGroupChat: true,
+        createdBy: true,
         participants: {
+          id: true,
           userId: true,
           isRemoved: true,
           user: {
@@ -479,8 +517,11 @@ export class ChatService {
         id: true,
         name: true,
         isGroupChat: true,
+        createdBy: true,
         participants: {
+          id: true,
           userId: true,
+          isRemoved: true,
           user: {
             id: true,
             username: true,
@@ -497,6 +538,81 @@ export class ChatService {
       updatedRoom ? this.toRoomDetails(updatedRoom, requesterId) : null,
       'Participants added',
     );
+  }
+
+  async removeParticipant(
+    roomId: number,
+    requesterId: number,
+    dto: RemoveParticipantDto,
+  ): Promise<ApiResponse> {
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: roomId, isRemoved: false },
+      select: { id: true, isGroupChat: true, createdBy: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+    if (!room.isGroupChat) {
+      return ApiResponseUtil.error('Cannot remove participants from a direct chat');
+    }
+
+    const requesterIsParticipant = await this.isUserInRoom(roomId, requesterId);
+    if (!requesterIsParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const targetUserId = dto.userId ?? requesterId;
+    const removingSelf = targetUserId === requesterId;
+
+    if (!removingSelf && room.createdBy !== requesterId) {
+      return ApiResponseUtil.error('Only group admin can remove other participants');
+    }
+    const activeCount = await this.chatRoomParticipantRepository.count({
+      where: { chatRoomId: roomId, isRemoved: false },
+    });
+    if (activeCount <= 1) {
+      return ApiResponseUtil.error('Cannot leave the group as the only member');
+    }
+
+    if (removingSelf && room.createdBy === requesterId) {
+      if (!dto.newAdminId) {
+        return ApiResponseUtil.error('Admin must transfer admin role before leaving');
+      }
+      if (dto.newAdminId === requesterId) {
+        return ApiResponseUtil.error('New admin must be a different user');
+      }
+
+      const newAdminIsParticipant = await this.chatRoomParticipantRepository.count({
+        where: { chatRoomId: roomId, userId: dto.newAdminId, isRemoved: false },
+      });
+      if (!newAdminIsParticipant) {
+        return ApiResponseUtil.error('New admin must be an active participant');
+      }
+
+      await this.chatRoomRepository.update(roomId, {
+        createdBy: dto.newAdminId,
+        updatedBy: requesterId,
+      });
+    }
+
+    const targetParticipant = await this.chatRoomParticipantRepository.findOne({
+      where: { chatRoomId: roomId, userId: targetUserId },
+      select: { id: true, isRemoved: true },
+    });
+    if (!targetParticipant) {
+      return ApiResponseUtil.error('Participant not found');
+    }
+
+    if (targetParticipant.isRemoved) {
+      return ApiResponseUtil.success(null, 'Participant already removed');
+    }
+
+    await this.chatRoomParticipantRepository.update(
+      { chatRoomId: roomId, userId: targetUserId },
+      { isRemoved: true, updatedBy: requesterId },
+    );
+
+    return ApiResponseUtil.success(null, 'Participant removed');
   }
 
   async getUsersForChat(userId: number, search?: string): Promise<ApiResponse> {
@@ -634,8 +750,8 @@ export class ChatService {
       })),
       sender: message.sender
         ? {
-            username: message.sender.username,
-          }
+          username: message.sender.username,
+        }
         : undefined,
     };
   }
@@ -666,18 +782,20 @@ export class ChatService {
       id: formattedRoom.id,
       name: formattedRoom.name,
       isGroupChat: formattedRoom.isGroupChat,
+      createdBy: room.createdBy,
       pinned,
       participants: (room.participants || [])
         .filter((p) => !p.isRemoved)
         .map((p) => ({
           userId: p.userId,
+          isRemoved: p.isRemoved,
           user: p.user
             ? {
-                id: p.user.id,
-                username: p.user.username,
-                branch: p.user.branch?.name || null,
-                role: p.user.role,
-              }
+              id: p.user.id,
+              username: p.user.username,
+              branch: p.user.branch?.name || null,
+              role: p.user.role,
+            }
             : undefined,
         })),
     };

@@ -271,20 +271,7 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
-      .select([
-        'message.id',
-        'message.chatRoomId',
-        'message.senderId',
-        'message.content',
-        'message.createdAt',
-        'sender.username',
-        'attachments.id',
-        'attachments.messageId',
-        'attachments.url',
-        'attachments.mimeType',
-        'attachments.fileName',
-        'attachments.size',
-      ])
+      .select(this.getMessageSelectFields(false))
       .where('message.id = :id', { id: savedMessage.id })
       .getOne();
 
@@ -312,21 +299,7 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
-      .select([
-        'message.id',
-        'message.chatRoomId',
-        'message.senderId',
-        'message.content',
-        'message.createdAt',
-        'message.isRemoved',
-        'sender.username',
-        'attachments.id',
-        'attachments.messageId',
-        'attachments.url',
-        'attachments.mimeType',
-        'attachments.fileName',
-        'attachments.size',
-      ])
+      .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .orderBy('message.createdAt', 'DESC')
@@ -691,25 +664,34 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
-      .select([
-        'message.id',
-        'message.chatRoomId',
-        'message.senderId',
-        'message.content',
-        'message.createdAt',
-        'message.isRemoved',
-        'sender.username',
-        'attachments.id',
-        'attachments.messageId',
-        'attachments.url',
-        'attachments.mimeType',
-        'attachments.fileName',
-        'attachments.size',
-      ])
+      .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .orderBy('message.createdAt', 'DESC')
       .getOne();
+  }
+
+  private getMessageSelectFields(includeIsRemoved: boolean): string[] {
+    const fields = [
+      'message.id',
+      'message.chatRoomId',
+      'message.senderId',
+      'message.content',
+      'message.createdAt',
+      'sender.username',
+      'attachments.id',
+      'attachments.messageId',
+      'attachments.url',
+      'attachments.mimeType',
+      'attachments.fileName',
+      'attachments.size',
+    ];
+
+    if (includeIsRemoved) {
+      fields.push('message.isRemoved');
+    }
+
+    return fields;
   }
 
   private async getUnreadCount(roomId: number, userId: number): Promise<number> {

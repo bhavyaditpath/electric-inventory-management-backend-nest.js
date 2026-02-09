@@ -64,12 +64,12 @@ export class ChatService {
       return ApiResponseUtil.error('One or more users not found');
     }
 
-    if (requester.role !== UserRole.ADMIN) {
-      const differentBranch = users.some((u) => u.branchId !== requester.branchId);
-      if (differentBranch) {
-        return ApiResponseUtil.error('Cannot create chat with users from other branches');
-      }
-    }
+    // if (requester.role !== UserRole.ADMIN) {
+    //   const differentBranch = users.some((u) => u.branchId !== requester.branchId);
+    //   if (differentBranch) {
+    //     return ApiResponseUtil.error('Cannot create chat with users from other branches');
+    //   }
+    // }
 
     const room = this.chatRoomRepository.create({
       name: dto.name,
@@ -379,9 +379,9 @@ export class ChatService {
       return ApiResponseUtil.error('User not found');
     }
 
-    if (user1.role !== UserRole.ADMIN && user1.branchId !== user2.branchId) {
-      return ApiResponseUtil.error('Cannot create chat with users from other branches');
-    }
+    // if (user1.role !== UserRole.ADMIN && user1.branchId !== user2.branchId) {
+    //   return ApiResponseUtil.error('Cannot create chat with users from other branches');
+    // }
 
     const existingRoom = await this.chatRoomRepository
       .createQueryBuilder('room')

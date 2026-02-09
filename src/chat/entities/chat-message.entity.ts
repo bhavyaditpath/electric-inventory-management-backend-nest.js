@@ -3,6 +3,7 @@ import { ChatRoom } from './chat-room.entity';
 import { User } from '../../user/entities/user.entity';
 import { BaseEntityClass } from '../../shared/base.entity';
 import { ChatAttachment } from './chat-attachment.entity';
+import { ChatMessageDeletion } from './chat-message-deletion.entity';
 
 @Entity('chat_messages')
 export class ChatMessage extends BaseEntityClass {
@@ -25,6 +26,9 @@ export class ChatMessage extends BaseEntityClass {
 
   @OneToMany(() => ChatAttachment, (attachment) => attachment.message)
   attachments: ChatAttachment[];
+
+  @OneToMany(() => ChatMessageDeletion, (deletion) => deletion.message)
+  deletions: ChatMessageDeletion[];
 
   @Column({ type: 'boolean', default: false })
   isRead: boolean;

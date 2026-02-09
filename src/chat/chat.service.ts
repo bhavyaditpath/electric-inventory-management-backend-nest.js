@@ -1,11 +1,12 @@
 import { Injectable, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, In } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
+import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
@@ -26,6 +27,8 @@ export class ChatService {
     private chatAttachmentRepository: Repository<ChatAttachment>,
     @InjectRepository(ChatRoomPin)
     private chatRoomPinRepository: Repository<ChatRoomPin>,
+    @InjectRepository(ChatMessageDeletion)
+    private chatMessageDeletionRepository: Repository<ChatMessageDeletion>,
     @InjectRepository(ChatRoomParticipant)
     private chatRoomParticipantRepository: Repository<ChatRoomParticipant>,
     @InjectRepository(User)
@@ -133,7 +136,7 @@ export class ChatService {
 
     const roomsWithMeta = await Promise.all(
       rooms.map(async (room) => {
-        const lastMessage = await this.getLastMessage(room.id);
+        const lastMessage = await this.getLastMessage(room.id, userId);
         const unreadCount = await this.getUnreadCount(room.id, userId);
         const pinned = !!room.pins?.length;
         return this.toRoomSummary(room, userId, lastMessage, unreadCount, pinned);
@@ -299,9 +302,11 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
       .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('deletion.id IS NULL')
       .orderBy('message.createdAt', 'DESC')
       .distinct(true)
       .skip((page - 1) * limit)
@@ -659,14 +664,16 @@ export class ChatService {
     );
   }
 
-  private async getLastMessage(roomId: number): Promise<ChatMessage | null> {
+  private async getLastMessage(roomId: number, userId: number): Promise<ChatMessage | null> {
     return this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
       .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('deletion.id IS NULL')
       .orderBy('message.createdAt', 'DESC')
       .getOne();
   }
@@ -695,13 +702,14 @@ export class ChatService {
   }
 
   private async getUnreadCount(roomId: number, userId: number): Promise<number> {
-    return this.chatMessageRepository.count({
-      where: {
-        chatRoomId: roomId,
-        senderId: Not(userId), // Messages from others
-        isRead: false,
-      },
-    });
+    return this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
+      .where('message.chatRoomId = :roomId', { roomId })
+      .andWhere('message.senderId != :userId', { userId })
+      .andWhere('message.isRead = :isRead', { isRead: false })
+      .andWhere('deletion.id IS NULL')
+      .getCount();
   }
 
   private formatRoomForUser(room: ChatRoom, userId: number) {
@@ -829,12 +837,15 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
-    await this.chatMessageRepository.update(messageId, { isRemoved: true, updatedBy: userId });
-
-    this.chatGateway.sendToRoom(message.chatRoomId, 'messageDeleted', {
-      id: messageId,
-      chatRoomId: message.chatRoomId,
+    const existingDeletion = await this.chatMessageDeletionRepository.findOne({
+      where: { messageId, userId },
+      select: { id: true },
     });
+
+    if (!existingDeletion) {
+      const deletion = this.chatMessageDeletionRepository.create({ messageId, userId });
+      await this.chatMessageDeletionRepository.save(deletion);
+    }
 
     return ApiResponseUtil.success(null, 'Message deleted');
   }
@@ -876,6 +887,7 @@ export class ChatService {
     return this.chatAttachmentRepository
       .createQueryBuilder('attachment')
       .leftJoin('attachment.message', 'message')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
       .leftJoin('message.chatRoom', 'room')
       .leftJoin(
         'room.participants',
@@ -897,6 +909,7 @@ export class ChatService {
       ])
       .where('attachment.id = :attachmentId', { attachmentId })
       .andWhere('message.isRemoved = :messageRemoved', { messageRemoved: false })
+        .andWhere('deletion.id IS NULL')
       .andWhere('room.isRemoved = :roomRemoved', { roomRemoved: false })
       .andWhere('participant.id IS NOT NULL')
       .getOne();

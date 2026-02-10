@@ -13,8 +13,8 @@ import { AddParticipantsDto } from './dto/add-participants.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { RemoveParticipantDto } from './dto/remove-participant.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
-import { ChatGateway } from './chat.gateway';
 import { UserRole } from '../shared/enums/role.enum';
+import { ChatGateway } from './Gateways/chat/chat.gateway';
 
 @Injectable()
 export class ChatService {

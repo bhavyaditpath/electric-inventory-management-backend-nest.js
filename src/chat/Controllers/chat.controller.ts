@@ -20,14 +20,14 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { join, extname, basename } from 'path';
 import { mkdirSync, existsSync, createReadStream } from 'fs';
-import { ChatService } from './chat.service';
-import { CreateChatRoomDto } from './dto/create-chat-room.dto';
-import { SendMessageDto } from './dto/send-message.dto';
-import { AddParticipantsDto } from './dto/add-participants.dto';
-import { PinChatRoomDto } from './dto/pin-chat-room.dto';
-import { RemoveParticipantDto } from './dto/remove-participant.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiResponseUtil } from '../shared/api-response';
+import { ChatService } from '../chat.service';
+import { CreateChatRoomDto } from '../dto/create-chat-room.dto';
+import { SendMessageDto } from '../dto/send-message.dto';
+import { AddParticipantsDto } from '../dto/add-participants.dto';
+import { PinChatRoomDto } from '../dto/pin-chat-room.dto';
+import { RemoveParticipantDto } from '../dto/remove-participant.dto';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { ApiResponseUtil } from '../../shared/api-response';
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard)

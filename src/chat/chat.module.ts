@@ -8,9 +8,12 @@ import { User } from '../user/entities/user.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { ChatService } from './chat.service';
-import { ChatController } from './chat.controller';
-import { ChatGateway } from './chat.gateway';
+import { ChatController } from './Controllers/chat.controller';
 import { AuthModule } from '../auth/auth.module';
+import { CallLog } from './entities/call-log.entity';
+import { CallGateway } from './Gateways/call/call.gateway';
+import { ChatGateway } from './Gateways/chat/chat.gateway';
+import { CallLogsController } from './Controllers/call-logs/call-logs.controller';
 
 @Module({
   imports: [
@@ -22,11 +25,12 @@ import { AuthModule } from '../auth/auth.module';
       ChatRoomParticipant,
       ChatRoomPin,
       User,
+      CallLog,
     ]),
     AuthModule,
   ],
-  controllers: [ChatController],
-  providers: [ChatService, ChatGateway],
-  exports: [ChatService, ChatGateway],
+  controllers: [ChatController, CallLogsController],
+  providers: [ChatService, ChatGateway, CallGateway],
+  exports: [ChatService, ChatGateway, CallGateway],
 })
 export class ChatModule {}

@@ -9,8 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { forwardRef, Inject } from '@nestjs/common';
-import { ChatService } from './chat.service';
 import { JwtService } from '@nestjs/jwt';
+import { ChatService } from '../../chat.service';
 
 @WebSocketGateway({
   cors: {

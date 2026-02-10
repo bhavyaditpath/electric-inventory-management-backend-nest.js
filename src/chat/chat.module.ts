@@ -14,6 +14,7 @@ import { CallLog } from './entities/call-log.entity';
 import { CallGateway } from './Gateways/call/call.gateway';
 import { ChatGateway } from './Gateways/chat/chat.gateway';
 import { CallLogsController } from './Controllers/call-logs/call-logs.controller';
+import { CallLogsService } from './callLogs.service';
 
 @Module({
   imports: [
@@ -30,7 +31,7 @@ import { CallLogsController } from './Controllers/call-logs/call-logs.controller
     AuthModule,
   ],
   controllers: [ChatController, CallLogsController],
-  providers: [ChatService, ChatGateway, CallGateway],
-  exports: [ChatService, ChatGateway, CallGateway],
+  providers: [ChatService, CallLogsService, ChatGateway, CallGateway],
+  exports: [ChatService, CallLogsService, ChatGateway, CallGateway],
 })
 export class ChatModule {}

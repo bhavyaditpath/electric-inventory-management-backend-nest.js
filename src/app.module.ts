@@ -17,9 +17,6 @@ import { ReportsModule } from './reports/reports.module';
 import { NotificationModule } from './notification/notification.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ChatModule } from './chat/chat.module';
-import { CallGateway } from './chat/Gateways/call/call.gateway';
-import { CallController } from './call/call.controller';
-import { CallLogsController } from './call-logs/call-logs.controller';
 import dbConfig from './config/database.config';
 
 @Module({
@@ -43,7 +40,7 @@ import dbConfig from './config/database.config';
     DashboardModule,
     ChatModule,
   ],
-  controllers: [CallController, CallLogsController],
-  providers: [SeederService, CallGateway],
+  controllers: [],
+  providers: [SeederService],
 })
 export class AppModule {}

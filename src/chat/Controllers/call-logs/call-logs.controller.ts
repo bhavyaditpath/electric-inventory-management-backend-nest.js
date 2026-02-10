@@ -24,21 +24,18 @@ export class CallLogsController {
         return user.id;
     }
 
-    // ================= ALL CALL HISTORY =================
     @Get('history')
     async getCallHistory(@Req() req: Request) {
         const userId = this.getUserId(req);
         return this.callLogsService.getCallHistory(userId);
     }
 
-    // ================= MISSED CALLS =================
     @Get('missed')
     async getMissedCalls(@Req() req: Request) {
         const userId = this.getUserId(req);
         return this.callLogsService.getMissedCalls(userId);
     }
 
-    // ================= ROOM CALLS =================
     @Get(':roomId')
     async getRoomCalls(
         @Param('roomId', ParseIntPipe) roomId: number,

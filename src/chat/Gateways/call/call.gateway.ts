@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io';
 import { Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { CallLogsService } from 'src/chat/callLogs.service';
+import { CallType } from 'src/shared/enums/callType.enum';
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -23,6 +24,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   // userId -> talkingWith
   private activeCalls: Map<number, number> = new Map();
   private ringingUsers: Set<number> = new Set();
+  private callTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   // "userA_userB" -> callLogId
   private callSessions: Map<string, number> = new Map();
@@ -57,6 +59,14 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
     this.server.to(`user_${userId}`).emit(event, data);
   }
 
+  private clearCallTimeout(key: string) {
+    const timeout = this.callTimeouts.get(key);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.callTimeouts.delete(key);
+    }
+  }
+
   async handleConnection(client: Socket) {
     try {
       const userId = this.getUserId(client);
@@ -69,7 +79,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   @SubscribeMessage('callUser')
   async handleCallUser(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { targetUserId: number; roomId: number },
+    @MessageBody() data: { targetUserId: number; roomId: number; callType?: CallType },
   ) {
     const callerId = this.getUserId(client);
     if (!callerId) return;
@@ -87,16 +97,41 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
       data.roomId,
       callerId,
       data.targetUserId,
+      data.callType ?? CallType.AUDIO,
     );
 
     const key = this.getCallKey(callerId, data.targetUserId);
     this.callSessions.set(key, log.id);
 
+    const callerName = await this.callLogsService.getUserDisplayNameById(callerId);
+
     this.sendToUser(data.targetUserId, 'incomingCall', {
       callerId,
+      callerName,
       roomId: data.roomId,
       callLogId: log.id,
+      callType: data.callType ?? CallType.AUDIO,
     });
+
+    const timeout = setTimeout(async () => {
+      if (!this.callSessions.has(key)) return;
+      if (!this.ringingUsers.has(data.targetUserId)) return;
+
+      await this.callLogsService.markCallMissed(log.id);
+      this.callSessions.delete(key);
+      this.ringingUsers.delete(data.targetUserId);
+
+      this.sendToUser(callerId, 'callNoAnswer', {});
+      this.sendToUser(data.targetUserId, 'missedCall', {
+        callerId,
+        callerName,
+        roomId: data.roomId,
+        callLogId: log.id,
+        callType: data.callType ?? CallType.AUDIO,
+      });
+    }, 30000);
+
+    this.callTimeouts.set(key, timeout);
   }
 
 
@@ -120,6 +155,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
     // remove ringing state
     this.ringingUsers.delete(receiverId);
     this.ringingUsers.delete(data.callerId);
+    this.clearCallTimeout(key);
 
     // set active call
     this.activeCalls.set(receiverId, data.callerId);
@@ -149,6 +185,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
 
     await this.callLogsService.markCallRejected(callLogId);
     this.callSessions.delete(key);
+    this.clearCallTimeout(key);
 
     this.sendToUser(data.callerId, 'callRejected', {});
   }
@@ -170,6 +207,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
       await this.callLogsService.finishCall(callLogId);
       this.callSessions.delete(key);
     }
+    this.clearCallTimeout(key);
 
     // cleanup states
     this.activeCalls.delete(userId);
@@ -194,10 +232,11 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
       const key = this.getCallKey(userId, otherUser);
       const callLogId = this.callSessions.get(key);
 
-      if (callLogId) {
-        await this.callLogsService.finishCall(callLogId);
-        this.callSessions.delete(key);
-      }
+    if (callLogId) {
+      await this.callLogsService.finishCall(callLogId);
+      this.callSessions.delete(key);
+    }
+    this.clearCallTimeout(key);
 
       this.activeCalls.delete(userId);
       this.activeCalls.delete(otherUser);
@@ -213,6 +252,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
       if (key.includes(`${userId}`)) {
         await this.callLogsService.markCallCancelled(callLogId);
         this.callSessions.delete(key);
+        this.clearCallTimeout(key);
       }
     }
 

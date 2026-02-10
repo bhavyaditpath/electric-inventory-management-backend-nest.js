@@ -1,6 +1,7 @@
 import { Entity, Column } from 'typeorm';
 import { BaseEntityClass } from 'src/shared/base.entity';
 import { CallLogsStatus } from 'src/shared/enums/callLogsStatus.enum';
+import { CallType } from 'src/shared/enums/callType.enum';
 
 @Entity('call_logs')
 export class CallLog extends BaseEntityClass {
@@ -20,6 +21,13 @@ export class CallLog extends BaseEntityClass {
     default: CallLogsStatus.MISSED,
   })
   status: CallLogsStatus;
+
+  @Column({
+    type: 'enum',
+    enum: CallType,
+    default: CallType.AUDIO,
+  })
+  callType: CallType;
 
   @Column({ type: 'timestamp', nullable: true })
   startedAt: Date | null;

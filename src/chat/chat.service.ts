@@ -217,6 +217,7 @@ export class ChatService {
     return ApiResponseUtil.success(this.toRoomDetails(room, userId, pinned));
   }
 
+  // chat.service.ts (updated sendMessage)
   async sendMessage(
     dto: SendMessageDto,
     senderId: number,
@@ -241,20 +242,24 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
-    if (!dto.content && (!files || files.length === 0)) {
+    const trimmedContent = (dto.content ?? '').trim();
+    const hasFiles = !!files && files.length > 0;
+
+    // Teams-like behavior: text must not be whitespace-only unless files exist
+    if (!trimmedContent && !hasFiles) {
       return ApiResponseUtil.error('Message must include text or at least one attachment');
     }
 
     const message = this.chatMessageRepository.create({
       chatRoomId: dto.chatRoomId,
       senderId,
-      content: dto.content ?? '',
+      content: trimmedContent, // normalized content
     });
 
     const savedMessage = await this.chatMessageRepository.save(message);
 
-    if (files && files.length > 0) {
-      const attachmentEntities = files.map((file) =>
+    if (hasFiles) {
+      const attachmentEntities = files!.map((file) =>
         this.chatAttachmentRepository.create({
           messageId: savedMessage.id,
           url: `/uploads/chat/${file.filename}`,
@@ -266,10 +271,8 @@ export class ChatService {
       await this.chatAttachmentRepository.save(attachmentEntities);
     }
 
-    // Update room's updatedAt
     await this.chatRoomRepository.update(dto.chatRoomId, { updatedAt: new Date() });
 
-    // Fetch full message with sender
     const fullMessage = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
@@ -909,7 +912,7 @@ export class ChatService {
       ])
       .where('attachment.id = :attachmentId', { attachmentId })
       .andWhere('message.isRemoved = :messageRemoved', { messageRemoved: false })
-        .andWhere('deletion.id IS NULL')
+      .andWhere('deletion.id IS NULL')
       .andWhere('room.isRemoved = :roomRemoved', { roomRemoved: false })
       .andWhere('participant.id IS NOT NULL')
       .getOne();

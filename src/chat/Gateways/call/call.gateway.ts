@@ -190,6 +190,30 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
     this.sendToUser(data.callerId, 'callRejected', {});
   }
 
+  // ================= CANCEL =================
+  @SubscribeMessage('cancelCall')
+  async handleCancelCall(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { targetUserId: number },
+  ) {
+    const callerId = this.getUserId(client);
+    if (!callerId) return;
+
+    const key = this.getCallKey(callerId, data.targetUserId);
+    const callLogId = this.callSessions.get(key);
+    if (!callLogId) return;
+
+    await this.callLogsService.markCallCancelled(callLogId);
+
+    this.callSessions.delete(key);
+    this.ringingUsers.delete(callerId);
+    this.ringingUsers.delete(data.targetUserId);
+    this.clearCallTimeout(key);
+
+    this.sendToUser(data.targetUserId, 'callCancelled', {
+      byUserId: callerId,
+    });
+  }
 
   // ================= END =================
   @SubscribeMessage('endCall')
@@ -220,8 +244,6 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
 
 
   // ================= DISCONNECT =================
-
-  // ================= DISCONNECT =================
   async handleDisconnect(client: Socket) {
     const userId = this.getUserId(client);
     if (!userId) return;
@@ -232,11 +254,11 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
       const key = this.getCallKey(userId, otherUser);
       const callLogId = this.callSessions.get(key);
 
-    if (callLogId) {
-      await this.callLogsService.finishCall(callLogId);
-      this.callSessions.delete(key);
-    }
-    this.clearCallTimeout(key);
+      if (callLogId) {
+        await this.callLogsService.finishCall(callLogId);
+        this.callSessions.delete(key);
+      }
+      this.clearCallTimeout(key);
 
       this.activeCalls.delete(userId);
       this.activeCalls.delete(otherUser);
@@ -249,11 +271,23 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
 
     // CASE 2: user was ringing (missed call)
     for (const [key, callLogId] of this.callSessions.entries()) {
-      if (key.includes(`${userId}`)) {
-        await this.callLogsService.markCallCancelled(callLogId);
-        this.callSessions.delete(key);
-        this.clearCallTimeout(key);
-      }
+      const [aStr, bStr] = key.split("_");
+      const a = Number(aStr);
+      const b = Number(bStr);
+
+      if (a !== userId && b !== userId) continue;
+
+      const otherUserId = a === userId ? b : a;
+
+      await this.callLogsService.markCallCancelled(callLogId);
+      this.callSessions.delete(key);
+      this.clearCallTimeout(key);
+
+      // notify other side to stop ringing immediately
+      this.sendToUser(otherUserId, "callCancelled", {
+        byUserId: userId,
+        reason: "disconnect",
+      });
     }
 
     this.ringingUsers.delete(userId);
@@ -277,3 +311,5 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
     this.sendToUser(data.targetUserId, 'iceCandidate', data.candidate);
   }
 }
+
+

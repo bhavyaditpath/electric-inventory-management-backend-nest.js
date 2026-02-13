@@ -2,7 +2,6 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query 
 import { UserService } from './user.service';
 import { UserDto } from './dto/user.dto';
 import { PaginationQueryDto } from '../shared/dto/pagination-query.dto';
-import { ApiResponseUtil } from '../shared/api-response';
 
 @Controller('users')
 export class UserController {
@@ -17,6 +16,11 @@ export class UserController {
   async findAll(@Query() paginationQuery: PaginationQueryDto) {
     const { page, pageSize, search, sortBy, sortOrder } = paginationQuery;
     return this.userService.findAll(page, pageSize, search, sortBy, sortOrder);
+  }
+
+  @Get('branch-names')
+  async findAllBranchNames() {
+    return this.userService.findAllBranchNames();
   }
 
   @Get(':id')

@@ -5,6 +5,7 @@ import { User } from './entities/user.entity';
 import { HashUtil } from '../utils/hash.util';
 import { UserDto } from './dto/user.dto';
 import { BranchService } from '../branch/branch.service';
+import { Branch } from '../branch/entities/branch.entity';
 import { GenericRepository } from '../shared/generic-repository';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '../shared/enums/notification-type.enum';
@@ -17,6 +18,8 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     repo: Repository<User>,
+    @InjectRepository(Branch)
+    private readonly branchRepo: Repository<Branch>,
     private readonly branchService: BranchService,
     private readonly notificationService: NotificationService,
   ) {
@@ -66,6 +69,16 @@ export class UserService {
     }
 
     return this.userRepository.findAll();
+  }
+
+  async findAllBranchNames(): Promise<ApiResponse> {
+    const branches = await this.branchRepo.find({
+      select: { name: true },
+      where: { isRemoved: false },
+      order: { name: 'ASC' },
+    });
+    const branchNames = branches.map((branch) => branch.name);
+    return ApiResponseUtil.success(branchNames, 'Branch names fetched successfully');
   }
 
   private async searchUsersWithPagination(

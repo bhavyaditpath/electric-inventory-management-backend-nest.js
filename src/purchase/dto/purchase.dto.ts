@@ -18,10 +18,11 @@ export class CreatePurchaseDto {
   @Transform(({ value }) => parseFloat(value))
   pricePerUnit: number;
 
+  @IsOptional()
   @IsNumber()
-  @IsPositive()
+  @Min(0)
   @Transform(({ value }) => parseFloat(value))
-  totalPrice: number;
+  totalPrice?: number;
 
   @IsNumber()
   @Min(0)

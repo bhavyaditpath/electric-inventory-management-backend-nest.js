@@ -37,8 +37,12 @@ export class PurchaseService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
+    const normalizedTotalPrice =
+      Number(createPurchaseDto.quantity) * Number(createPurchaseDto.pricePerUnit);
+
     const purchase = this.purchaseRepository.create({
       ...createPurchaseDto,
+      totalPrice: normalizedTotalPrice,
       userId,
       branchId: user.branchId,
       createdBy: userId,
@@ -96,6 +100,10 @@ export class PurchaseService {
     const purchase = await this.findOne(id);
 
     Object.assign(purchase, updatePurchaseDto);
+    if (updatePurchaseDto.quantity !== undefined || updatePurchaseDto.pricePerUnit !== undefined) {
+      purchase.totalPrice = Number(purchase.quantity) * Number(purchase.pricePerUnit);
+    }
+
     const updated = await this.purchaseRepository.save(purchase);
     if (purchase.branchId) {
       await this.alertService.generateAlertsForBranch(purchase.branchId);

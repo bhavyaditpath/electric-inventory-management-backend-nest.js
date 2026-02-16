@@ -17,7 +17,7 @@ export class Purchase extends BaseEntityClass {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   pricePerUnit: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 18, scale: 2 })
   totalPrice: number;
 
   @Column({ type: 'int' })

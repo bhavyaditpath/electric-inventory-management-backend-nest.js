@@ -59,9 +59,9 @@ export class ReportsController {
   }
 
   @Post('generate-scheduled')
-  async generateScheduledReports() {
-    await this.reportsService.processScheduledReports();
-    return { message: 'Scheduled reports generated successfully' };
+  async generateScheduledReports(@CurrentUser() user: User) {
+    const message = await this.reportsService.processScheduledReports(user.id);
+    return { message };
   }
 
   @Post('generate/:reportType')

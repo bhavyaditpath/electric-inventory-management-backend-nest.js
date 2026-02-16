@@ -347,11 +347,15 @@ export class ReportsService {
     });
   }
 
-  async processScheduledReports(): Promise<void> {
+  async processScheduledReports(userId: number): Promise<string> {
     const activePreferences = await this.reportPreferenceRepository.find({
-      where: { isActive: true, isRemoved: false },
+      where: { userId, isActive: true, isRemoved: false },
       relations: ['user'],
     });
+
+    if (activePreferences.length === 0) {
+      return 'No preference is added';
+    }
 
     for (const preference of activePreferences) {
       try {
@@ -369,6 +373,8 @@ export class ReportsService {
         console.error(`Failed to generate report for user ${preference.userId}:`, error);
       }
     }
+
+    return 'Scheduled reports generated successfully';
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)

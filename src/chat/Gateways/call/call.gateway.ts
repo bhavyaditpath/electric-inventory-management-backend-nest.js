@@ -232,7 +232,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
             isGroupCall: room.isGroupChat,
           });
         })();
-      }, 90000);
+      }, 30000);
 
       this.callTimeouts.set(key, timeout);
     }

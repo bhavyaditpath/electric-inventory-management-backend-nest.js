@@ -189,13 +189,14 @@ export class CallLogsService {
     }
 
     async incrementChunk(callLogId: number): Promise<number> {
-        const log = await this.callLogRepository.findOne({ where: { id: callLogId } });
-        if (!log) return 0;
+        await this.callLogRepository.increment({ id: callLogId }, "recordingChunks", 1);
 
-        log.recordingChunks += 1;
-        await this.callLogRepository.save(log);
+        const updated = await this.callLogRepository.findOne({
+            where: { id: callLogId },
+            select: ["recordingChunks"],
+        });
 
-        return log.recordingChunks;
+        return updated?.recordingChunks ?? 1;
     }
 
 
@@ -215,18 +216,16 @@ export class CallLogsService {
 
         const listFile = path.join(dir, "list.txt");
 
-        const fileContent = files
-            .map(f => `file '${path.resolve(dir, f).replace(/\\/g, "/")}'`)
-            .join("\n");
-
-        fs.writeFileSync(listFile, fileContent);
-
-        const output = `${dir}/final.webm`;
-
-        await execPromise(
-            `ffmpeg -loglevel error -f concat -safe 0 -i "${listFile}" -c copy "${output}" -y`
+        fs.writeFileSync(
+            listFile,
+            files.map(f => `file '${f}'`).join("\n")
         );
 
+        const output = path.join(dir, "final.webm");
+
+        await execPromise(
+            `cd "${dir}" && ffmpeg -loglevel error -f concat -safe 0 -i list.txt -c:a libopus -b:a 64k final.webm -y`
+        );
 
         await this.callLogRepository.update(callLogId, {
             recordingPath: output,

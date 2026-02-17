@@ -15,6 +15,7 @@ import { CallGateway } from './Gateways/call/call.gateway';
 import { ChatGateway } from './Gateways/chat/chat.gateway';
 import { CallLogsController } from './Controllers/call-logs/call-logs.controller';
 import { CallLogsService } from './callLogs.service';
+import { CallRecordingController } from './Controllers/call-recording/call-recording.controller';
 
 @Module({
   imports: [
@@ -30,7 +31,7 @@ import { CallLogsService } from './callLogs.service';
     ]),
     AuthModule,
   ],
-  controllers: [ChatController, CallLogsController],
+  controllers: [ChatController, CallLogsController, CallRecordingController],
   providers: [ChatService, CallLogsService, ChatGateway, CallGateway],
   exports: [ChatService, CallLogsService, ChatGateway, CallGateway],
 })

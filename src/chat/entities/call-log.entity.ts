@@ -37,4 +37,14 @@ export class CallLog extends BaseEntityClass {
 
   @Column({ type: 'int', nullable: true })
   duration: number | null; // seconds
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  recordingPath?: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  recordingProcessing: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  recordingChunks: number;
+
 }

@@ -5,7 +5,12 @@ import { In, Repository } from "typeorm";
 import { User } from "src/user/entities/user.entity";
 import { CallLogsStatus } from "src/shared/enums/callLogsStatus.enum";
 import { CallType } from "src/shared/enums/callType.enum";
+import * as fs from 'fs';
+import { exec } from "child_process";
+import { promisify } from "util";
+import path from "path/win32";
 
+const execPromise = promisify(exec);
 @Injectable()
 export class CallLogsService {
     constructor(
@@ -93,7 +98,15 @@ export class CallLogsService {
             log.duration = 0;
         }
 
-        return this.callLogRepository.save(log);
+        if (!log.recordingProcessing) {
+            log.recordingProcessing = true;
+            await this.callLogRepository.save(log);
+            this.processRecording(callLogId);
+        } else {
+            await this.callLogRepository.save(log);
+        }
+
+        return log;
     }
 
     private getDisplayName(user?: User | null) {
@@ -174,5 +187,52 @@ export class CallLogsService {
         });
         return this.attachUserNames(logs);
     }
+
+    async incrementChunk(callLogId: number): Promise<number> {
+        const log = await this.callLogRepository.findOne({ where: { id: callLogId } });
+        if (!log) return 0;
+
+        log.recordingChunks += 1;
+        await this.callLogRepository.save(log);
+
+        return log.recordingChunks;
+    }
+
+
+    async processRecording(callLogId: number) {
+        const dir = `recordings/call_${callLogId}`;
+        if (!fs.existsSync(dir)) return;
+
+        const files = fs.readdirSync(dir)
+            .filter(f => f.endsWith(".webm"))
+            .sort((a, b) => {
+                const ai = parseInt(a.split('_')[1]);
+                const bi = parseInt(b.split('_')[1]);
+                return ai - bi;
+            });
+
+        if (!files.length) return;
+
+        const listFile = path.join(dir, "list.txt");
+
+        const fileContent = files
+            .map(f => `file '${path.resolve(dir, f).replace(/\\/g, "/")}'`)
+            .join("\n");
+
+        fs.writeFileSync(listFile, fileContent);
+
+        const output = `${dir}/final.webm`;
+
+        await execPromise(
+            `ffmpeg -loglevel error -f concat -safe 0 -i "${listFile}" -c copy "${output}" -y`
+        );
+
+
+        await this.callLogRepository.update(callLogId, {
+            recordingPath: output,
+            recordingProcessing: false
+        });
+    }
+
 
 }

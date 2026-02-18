@@ -7,6 +7,7 @@ import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
+import { ChatMessageReaction } from './entities/chat-message-reaction.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
@@ -29,6 +30,8 @@ export class ChatService {
     private chatRoomPinRepository: Repository<ChatRoomPin>,
     @InjectRepository(ChatMessageDeletion)
     private chatMessageDeletionRepository: Repository<ChatMessageDeletion>,
+    @InjectRepository(ChatMessageReaction)
+    private chatMessageReactionRepository: Repository<ChatMessageReaction>,
     @InjectRepository(ChatRoomParticipant)
     private chatRoomParticipantRepository: Repository<ChatRoomParticipant>,
     @InjectRepository(User)
@@ -277,11 +280,12 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
       .select(this.getMessageSelectFields(false))
       .where('message.id = :id', { id: savedMessage.id })
       .getOne();
 
-    const mappedMessage = fullMessage ? this.toMessageDto(fullMessage) : null;
+    const mappedMessage = fullMessage ? this.toMessageDto(fullMessage, senderId) : null;
 
     if (options?.emit !== false && mappedMessage) {
       this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', mappedMessage);
@@ -305,6 +309,7 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
       .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
@@ -316,7 +321,7 @@ export class ChatService {
       .take(limit)
       .getManyAndCount();
 
-    const mappedMessages = messages.reverse().map((m) => this.toMessageDto(m));
+    const mappedMessages = messages.reverse().map((m) => this.toMessageDto(m, userId));
 
     return ApiResponseUtil.success({
       messages: mappedMessages,
@@ -672,6 +677,7 @@ export class ChatService {
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
       .select(this.getMessageSelectFields(true))
       .where('message.chatRoomId = :roomId', { roomId })
@@ -695,6 +701,9 @@ export class ChatService {
       'attachments.mimeType',
       'attachments.fileName',
       'attachments.size',
+      'reactions.id',
+      'reactions.userId',
+      'reactions.emoji',
     ];
 
     if (includeIsRemoved) {
@@ -726,7 +735,14 @@ export class ChatService {
     return { ...room, name: displayName };
   }
 
-  private toMessageDto(message: ChatMessage) {
+  private toMessageDto(message: ChatMessage, currentUserId?: number) {
+    const reactionsMap = new Map<string, Set<number>>();
+    for (const reaction of message.reactions || []) {
+      const users = reactionsMap.get(reaction.emoji) || new Set<number>();
+      users.add(reaction.userId);
+      reactionsMap.set(reaction.emoji, users);
+    }
+
     return {
       id: message.id,
       chatRoomId: message.chatRoomId,
@@ -740,6 +756,12 @@ export class ChatService {
         mimeType: a.mimeType,
         fileName: a.fileName,
         size: a.size,
+      })),
+      reactions: Array.from(reactionsMap.entries()).map(([emoji, userIds]) => ({
+        emoji,
+        count: userIds.size,
+        reactedByMe: currentUserId ? userIds.has(currentUserId) : false,
+        userIds: Array.from(userIds),
       })),
       sender: message.sender
         ? {
@@ -762,7 +784,7 @@ export class ChatService {
       id: formattedRoom.id,
       name: formattedRoom.name,
       isGroupChat: formattedRoom.isGroupChat,
-      lastMessage: lastMessage ? this.toMessageDto(lastMessage) : null,
+      lastMessage: lastMessage ? this.toMessageDto(lastMessage, userId) : null,
       unreadCount,
       pinned,
     };
@@ -813,6 +835,85 @@ export class ChatService {
     );
 
     return ApiResponseUtil.success(null, 'Chat room removed for you');
+  }
+
+  async toggleMessageReaction(
+    messageId: number,
+    userId: number,
+    emoji: string,
+  ): Promise<ApiResponse> {
+    const normalizedEmoji = (emoji || '').trim();
+    if (!normalizedEmoji) {
+      return ApiResponseUtil.error('Emoji is required');
+    }
+
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, isRemoved: false },
+      select: { id: true, chatRoomId: true },
+    });
+    if (!message) {
+      return ApiResponseUtil.error('Message not found');
+    }
+
+    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const deletedForUser = await this.chatMessageDeletionRepository.exist({
+      where: { messageId, userId },
+    });
+    if (deletedForUser) {
+      return ApiResponseUtil.error('Message not found');
+    }
+
+    const existingReaction = await this.chatMessageReactionRepository.findOne({
+      where: {
+        messageId,
+        userId,
+        emoji: normalizedEmoji,
+      },
+      select: { id: true },
+    });
+
+    let reacted = false;
+    if (existingReaction) {
+      await this.chatMessageReactionRepository.delete({ id: existingReaction.id });
+    } else {
+      const reaction = this.chatMessageReactionRepository.create({
+        messageId,
+        userId,
+        emoji: normalizedEmoji,
+        createdBy: userId,
+      });
+      await this.chatMessageReactionRepository.save(reaction);
+      reacted = true;
+    }
+
+    const updatedMessage = await this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
+      .select(this.getMessageSelectFields(true))
+      .where('message.id = :messageId', { messageId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('deletion.id IS NULL')
+      .getOne();
+
+    const mappedMessage = updatedMessage
+      ? this.toMessageDto(updatedMessage, userId)
+      : null;
+
+    if (mappedMessage) {
+      this.chatGateway.sendToRoom(message.chatRoomId, 'messageReactionUpdated', mappedMessage);
+    }
+
+    return ApiResponseUtil.success(
+      mappedMessage,
+      reacted ? 'Reaction added' : 'Reaction removed',
+    );
   }
 
   async deleteMessage(messageId: number, userId: number): Promise<ApiResponse> {

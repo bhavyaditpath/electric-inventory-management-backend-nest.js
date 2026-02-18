@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Req, Res, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CallLogsService } from 'src/chat/callLogs.service';
@@ -9,6 +9,14 @@ import express from 'express';
 @UseGuards(JwtAuthGuard)
 export class CallRecordingController {
     constructor(private readonly callLogsService: CallLogsService) { }
+
+    private getUserId(req: express.Request): number {
+        const user = (req as { user?: { id?: number } }).user;
+        if (!user?.id) {
+            throw new UnauthorizedException('User not authenticated');
+        }
+        return user.id;
+    }
 
     @Post(':id/chunk')
     @UseInterceptors(FileInterceptor('file'))
@@ -34,6 +42,12 @@ export class CallRecordingController {
         @Req() req: express.Request,
         @Res() res: express.Response
     ) {
+        const userId = this.getUserId(req);
+        const canAccess = await this.callLogsService.canUserAccessCallLog(id, userId);
+        if (!canAccess) {
+            throw new NotFoundException("Recording not found");
+        }
+
         const log = await this.callLogsService.getRecordingStream(id);
 
         if (!log || !log.hasRecording || !log.recordingPath)
@@ -48,7 +62,7 @@ export class CallRecordingController {
         const fileSize = stat.size;
         const range = req.headers.range;
 
-        res.setHeader("Content-Type", "audio/webm");
+        res.setHeader("Content-Type", log.recordingMimeType || "audio/webm");
         res.setHeader("Accept-Ranges", "bytes");
 
         if (!range) {
@@ -74,5 +88,33 @@ export class CallRecordingController {
 
         const stream = fs.createReadStream(filePath, { start, end });
         stream.pipe(res);
+    }
+
+    @Get(':id/download')
+    async downloadRecording(
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: express.Request,
+        @Res() res: express.Response
+    ) {
+        const userId = this.getUserId(req);
+        const canAccess = await this.callLogsService.canUserAccessCallLog(id, userId);
+        if (!canAccess) {
+            throw new NotFoundException("Recording not found");
+        }
+
+        const log = await this.callLogsService.getRecordingStream(id);
+
+        if (!log || !log.hasRecording || !log.recordingPath)
+            throw new NotFoundException("Recording not found");
+
+        const filePath = log.recordingPath;
+
+        if (!fs.existsSync(filePath))
+            throw new NotFoundException("Recording file missing");
+
+        res.setHeader("Content-Type", log.recordingMimeType || "audio/webm");
+        res.setHeader("Content-Disposition", `attachment; filename="call_${id}.webm"`);
+
+        fs.createReadStream(filePath).pipe(res);
     }
 }

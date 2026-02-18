@@ -163,7 +163,8 @@ export class CallLogsService {
             ],
             order: { createdAt: 'DESC' },
         });
-        return this.attachUserNames(logs);
+        const withNames = await this.attachUserNames(logs);
+        return this.attachRecordingUrls(withNames);
     }
 
     async getMissedCalls(userId: number) {
@@ -174,7 +175,8 @@ export class CallLogsService {
             },
             order: { createdAt: 'DESC' },
         });
-        return this.attachUserNames(logs);
+        const withNames = await this.attachUserNames(logs);
+        return this.attachRecordingUrls(withNames);
     }
 
     async getRoomCallHistory(roomId: number, userId: number) {
@@ -185,7 +187,28 @@ export class CallLogsService {
             ],
             order: { createdAt: 'DESC' },
         });
-        return this.attachUserNames(logs);
+        const withNames = await this.attachUserNames(logs);
+        return this.attachRecordingUrls(withNames);
+    }
+
+    private attachRecordingUrls(logs: any[]) {
+        return logs.map((log) => {
+            const hasRecording = Boolean(log.hasRecording);
+            return {
+                ...log,
+                recordingPlayUrl: hasRecording ? `/call-recording/${log.id}/play` : null,
+                recordingDownloadUrl: hasRecording ? `/call-recording/${log.id}/download` : null,
+            };
+        });
+    }
+
+    async canUserAccessCallLog(callLogId: number, userId: number) {
+        return this.callLogRepository.exist({
+            where: [
+                { id: callLogId, callerId: userId },
+                { id: callLogId, receiverId: userId },
+            ],
+        });
     }
 
     async incrementChunk(callLogId: number): Promise<number> {
@@ -240,7 +263,7 @@ export class CallLogsService {
     getRecordingStream(callLogId: number) {
         return this.callLogRepository.findOne({
             where: { id: callLogId },
-            select: ["recordingPath", "hasRecording"]
+            select: ["id", "recordingPath", "hasRecording", "recordingMimeType", "recordingSize"]
         });
     }
 

@@ -226,10 +226,21 @@ export class CallLogsService {
         await execPromise(
             `cd "${dir}" && ffmpeg -loglevel error -f concat -safe 0 -i list.txt -c:a libopus -b:a 64k final.webm -y`
         );
+        const stats = fs.statSync(output);
 
         await this.callLogRepository.update(callLogId, {
             recordingPath: output,
-            recordingProcessing: false
+            recordingProcessing: false,
+            hasRecording: true,
+            recordingSize: stats.size,
+            recordingMimeType: "audio/webm"
+        });
+    }
+
+    getRecordingStream(callLogId: number) {
+        return this.callLogRepository.findOne({
+            where: { id: callLogId },
+            select: ["recordingPath", "hasRecording"]
         });
     }
 

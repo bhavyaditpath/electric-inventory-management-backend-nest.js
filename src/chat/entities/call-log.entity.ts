@@ -47,4 +47,12 @@ export class CallLog extends BaseEntityClass {
   @Column({ type: 'int', default: 0 })
   recordingChunks: number;
 
+  @Column({ type: 'int', nullable: true })
+  recordingSize?: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  recordingMimeType?: string;
+
+  @Column({ type: 'boolean', default: false })
+  hasRecording?: boolean;
 }

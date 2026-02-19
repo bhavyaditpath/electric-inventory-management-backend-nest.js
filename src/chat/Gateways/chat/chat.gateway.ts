@@ -28,12 +28,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(forwardRef(() => ChatService))
     private chatService: ChatService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
-      
+
       if (!token) {
         client.disconnect();
         return;
@@ -131,7 +131,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = await this.chatService.sendMessage(
         { chatRoomId: data.roomId, content: data.content },
         userId,
-        { emit: false },
+        { emit: true }, // important
       );
 
       if (result.success && result.data) {

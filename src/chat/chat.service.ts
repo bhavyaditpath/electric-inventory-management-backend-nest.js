@@ -289,6 +289,26 @@ export class ChatService {
 
     if (options?.emit !== false && mappedMessage) {
       this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', mappedMessage);
+
+      const recipients = await this.chatRoomParticipantRepository.find({
+        where: { chatRoomId: dto.chatRoomId, isRemoved: false },
+        select: { userId: true },
+      });
+
+      const senderName = mappedMessage.sender?.username || "Someone";
+
+      for (const p of recipients) {
+        if (p.userId === senderId) continue;
+
+        this.chatGateway.sendToUser(p.userId, "messageNotification", {
+          messageId: mappedMessage.id,
+          chatRoomId: mappedMessage.chatRoomId,
+          senderId,
+          senderName,
+          content: mappedMessage.content,
+          createdAt: mappedMessage.createdAt,
+        });
+      }
     }
 
     return ApiResponseUtil.success(mappedMessage, 'Message sent successfully');
@@ -837,42 +857,21 @@ export class ChatService {
     return ApiResponseUtil.success(null, 'Chat room removed for you');
   }
 
-  async toggleMessageReaction(
-    messageId: number,
-    userId: number,
-    emoji: string,
-  ): Promise<ApiResponse> {
+  async toggleMessageReaction(messageId: number, userId: number, emoji: string): Promise<ApiResponse> {
     const normalizedEmoji = (emoji || '').trim();
-    if (!normalizedEmoji) {
-      return ApiResponseUtil.error('Emoji is required');
-    }
+    if (!normalizedEmoji) return ApiResponseUtil.error('Emoji is required');
 
     const message = await this.chatMessageRepository.findOne({
       where: { id: messageId, isRemoved: false },
-      select: { id: true, chatRoomId: true },
+      select: { id: true, chatRoomId: true, senderId: true }, // add senderId
     });
-    if (!message) {
-      return ApiResponseUtil.error('Message not found');
-    }
+    if (!message) return ApiResponseUtil.error('Message not found');
 
     const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
-    if (!isParticipant) {
-      return ApiResponseUtil.error('Access denied');
-    }
-
-    const deletedForUser = await this.chatMessageDeletionRepository.exist({
-      where: { messageId, userId },
-    });
-    if (deletedForUser) {
-      return ApiResponseUtil.error('Message not found');
-    }
+    if (!isParticipant) return ApiResponseUtil.error('Access denied');
 
     const existingReaction = await this.chatMessageReactionRepository.findOne({
-      where: {
-        messageId,
-        userId,
-        emoji: normalizedEmoji,
-      },
+      where: { messageId, userId, emoji: normalizedEmoji },
       select: { id: true },
     });
 
@@ -880,13 +879,14 @@ export class ChatService {
     if (existingReaction) {
       await this.chatMessageReactionRepository.delete({ id: existingReaction.id });
     } else {
-      const reaction = this.chatMessageReactionRepository.create({
-        messageId,
-        userId,
-        emoji: normalizedEmoji,
-        createdBy: userId,
-      });
-      await this.chatMessageReactionRepository.save(reaction);
+      await this.chatMessageReactionRepository.save(
+        this.chatMessageReactionRepository.create({
+          messageId,
+          userId,
+          emoji: normalizedEmoji,
+          createdBy: userId,
+        }),
+      );
       reacted = true;
     }
 
@@ -902,18 +902,30 @@ export class ChatService {
       .andWhere('deletion.id IS NULL')
       .getOne();
 
-    const mappedMessage = updatedMessage
-      ? this.toMessageDto(updatedMessage, userId)
-      : null;
+    const mappedMessage = updatedMessage ? this.toMessageDto(updatedMessage, userId) : null;
 
     if (mappedMessage) {
       this.chatGateway.sendToRoom(message.chatRoomId, 'messageReactionUpdated', mappedMessage);
+
+      if (message.senderId !== userId && reacted) {
+        const reactor = await this.userRepository.findOne({
+          where: { id: userId },
+          select: { id: true, username: true },
+        });
+
+        this.chatGateway.sendToUser(message.senderId, 'reactionNotification', {
+          messageId: message.id,
+          chatRoomId: message.chatRoomId,
+          emoji: normalizedEmoji,
+          reactorId: userId,
+          reactorName: reactor?.username ?? 'Someone',
+          action: 'added',
+          createdAt: new Date().toISOString(),
+        });
+      }
     }
 
-    return ApiResponseUtil.success(
-      mappedMessage,
-      reacted ? 'Reaction added' : 'Reaction removed',
-    );
+    return ApiResponseUtil.success(mappedMessage, reacted ? 'Reaction added' : 'Reaction removed');
   }
 
   async deleteMessage(messageId: number, userId: number): Promise<ApiResponse> {

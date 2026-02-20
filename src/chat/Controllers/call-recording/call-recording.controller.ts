@@ -17,23 +17,45 @@ export class CallRecordingController {
         }
         return user.id;
     }
+    @Post(':id/finalize')
+    async finalizeRecording(
+        @Param('id', ParseIntPipe) id: number,
+        @Req() req: express.Request
+    ) {
+        const userId = this.getUserId(req);
+        const canAccess = await this.callLogsService.canUserAccessCallLog(id, userId);
+        if (!canAccess) {
+            throw new NotFoundException("Recording not found");
+        }
+
+        await this.callLogsService.finalizeRecordingUpload(id);
+        return { ok: true };
+    }
+
 
     @Post(':id/chunk')
     @UseInterceptors(FileInterceptor('file'))
     async uploadChunk(
         @Param('id', ParseIntPipe) id: number,
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFile() file: Express.Multer.File,
+        @Req() req: express.Request
     ) {
+        const userId = this.getUserId(req);
+        const canAccess = await this.callLogsService.canUserAccessCallLog(id, userId);
+        if (!canAccess) {
+            throw new NotFoundException("Recording not found");
+        }
+
         const dir = `recordings/call_${id}`;
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
         const chunkIndex = await this.callLogsService.incrementChunk(id);
+        const chunkPath = `${dir}/chunk_${chunkIndex}.webm`;
+        fs.writeFileSync(chunkPath, file.buffer);
 
-        const path = `${dir}/chunk_${chunkIndex}.webm`;
-        fs.writeFileSync(path, file.buffer);
+        await this.callLogsService.notifyChunkUploaded(id);
 
-
-        return { ok: true };
+        return { ok: true, chunkIndex };
     }
 
     @Get(':id/play')

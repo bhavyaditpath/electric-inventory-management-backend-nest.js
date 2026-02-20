@@ -8,11 +8,13 @@ import { CallType } from "src/shared/enums/callType.enum";
 import * as fs from 'fs';
 import { exec } from "child_process";
 import { promisify } from "util";
-import path from "path/win32";
+import * as path from "path";
 
 const execPromise = promisify(exec);
 @Injectable()
 export class CallLogsService {
+      private processingTimers = new Map<number, NodeJS.Timeout>();
+  private processingLocks = new Set<number>();
     constructor(
         @InjectRepository(CallLog)
         private callLogRepository: Repository<CallLog>,
@@ -100,14 +102,127 @@ export class CallLogsService {
 
         if (!log.recordingProcessing) {
             log.recordingProcessing = true;
-            await this.callLogRepository.save(log);
-            this.processRecording(callLogId);
-        } else {
-            await this.callLogRepository.save(log);
         }
+
+        await this.callLogRepository.save(log);
+
+        this.scheduleRecordingProcessing(callLogId, 5000);
 
         return log;
     }
+
+    async notifyChunkUploaded(callLogId: number) {
+        const log = await this.callLogRepository.findOne({
+            where: { id: callLogId },
+            select: ["id", "endedAt", "recordingProcessing"],
+        });
+        if (!log?.endedAt || !log.recordingProcessing) return;
+
+        // Debounce processing while chunks are still arriving.
+        this.scheduleRecordingProcessing(callLogId, 2500);
+    }
+
+    async finalizeRecordingUpload(callLogId: number) {
+        const log = await this.callLogRepository.findOne({
+            where: { id: callLogId },
+            select: ["id", "recordingProcessing"],
+        });
+        if (!log) return;
+
+        if (!log.recordingProcessing) {
+            await this.callLogRepository.update(callLogId, { recordingProcessing: true });
+        }
+
+        // Finalize quickly after explicit client finalize call.
+        this.scheduleRecordingProcessing(callLogId, 1000);
+    }
+
+    private scheduleRecordingProcessing(callLogId: number, delayMs: number) {
+        const existing = this.processingTimers.get(callLogId);
+        if (existing) {
+            clearTimeout(existing);
+        }
+
+        const timer = setTimeout(() => {
+            void this.runProcessing(callLogId);
+        }, delayMs);
+
+        this.processingTimers.set(callLogId, timer);
+    }
+
+    private async runProcessing(callLogId: number) {
+        const timer = this.processingTimers.get(callLogId);
+        if (timer) {
+            clearTimeout(timer);
+            this.processingTimers.delete(callLogId);
+        }
+
+        if (this.processingLocks.has(callLogId)) return;
+        this.processingLocks.add(callLogId);
+
+        try {
+            await this.processRecording(callLogId);
+        } finally {
+            this.processingLocks.delete(callLogId);
+        }
+    }
+
+    private sleep(ms: number) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    private listChunkFiles(dir: string): string[] {
+        if (!fs.existsSync(dir)) return [];
+        return fs
+            .readdirSync(dir)
+            .filter((f) => /^chunk_\d+\.webm$/i.test(f))
+            .sort((a, b) => {
+                const ai = Number(a.match(/^chunk_(\d+)\.webm$/i)?.[1] ?? 0);
+                const bi = Number(b.match(/^chunk_(\d+)\.webm$/i)?.[1] ?? 0);
+                return ai - bi;
+            });
+    }
+
+    private getChunkSignature(dir: string, files: string[]) {
+        return files
+            .map((f) => {
+                const size = fs.statSync(path.join(dir, f)).size;
+                return `${f}:${size}`;
+            })
+            .join("|");
+    }
+
+    private async waitForStableChunks(
+        dir: string,
+        maxAttempts = 10,
+        intervalMs = 700
+    ): Promise<string[]> {
+        let lastSignature = "";
+        let stableRounds = 0;
+
+        for (let i = 0; i < maxAttempts; i++) {
+            const files = this.listChunkFiles(dir);
+            if (!files.length) {
+                await this.sleep(intervalMs);
+                continue;
+            }
+
+            const signature = this.getChunkSignature(dir, files);
+
+            if (signature === lastSignature) {
+                stableRounds += 1;
+                if (stableRounds >= 2) return files;
+            } else {
+                stableRounds = 0;
+                lastSignature = signature;
+            }
+
+            await this.sleep(intervalMs);
+        }
+
+        return this.listChunkFiles(dir);
+    }
+
 
     private getDisplayName(user?: User | null) {
         if (!user) return null;
@@ -225,40 +340,62 @@ export class CallLogsService {
 
     async processRecording(callLogId: number) {
         const dir = `recordings/call_${callLogId}`;
-        if (!fs.existsSync(dir)) return;
+        if (!fs.existsSync(dir)) {
+            await this.callLogRepository.update(callLogId, { recordingProcessing: false });
+            return;
+        }
 
-        const files = fs.readdirSync(dir)
-            .filter(f => f.endsWith(".webm"))
-            .sort((a, b) => {
-                const ai = parseInt(a.split('_')[1]);
-                const bi = parseInt(b.split('_')[1]);
-                return ai - bi;
+        const files = await this.waitForStableChunks(dir);
+        if (!files.length) {
+            await this.callLogRepository.update(callLogId, {
+                recordingProcessing: false,
+                hasRecording: false,
+                recordingPath: null,
+                recordingSize: null,
+                recordingMimeType: null,
             });
-
-        if (!files.length) return;
+            return;
+        }
 
         const listFile = path.join(dir, "list.txt");
-
-        fs.writeFileSync(
-            listFile,
-            files.map(f => `file '${f}'`).join("\n")
-        );
-
         const output = path.join(dir, "final.webm");
 
-        await execPromise(
-            `cd "${dir}" && ffmpeg -loglevel error -f concat -safe 0 -i list.txt -c:a libopus -b:a 64k final.webm -y`
-        );
-        const stats = fs.statSync(output);
+        const listContent = files
+            .map((f) => `file '${f}'`)
+            .join("\n");
 
-        await this.callLogRepository.update(callLogId, {
-            recordingPath: output,
-            recordingProcessing: false,
-            hasRecording: true,
-            recordingSize: stats.size,
-            recordingMimeType: "audio/webm"
-        });
+        fs.writeFileSync(listFile, listContent, { encoding: "utf-8" });
+
+        try {
+            await execPromise(
+                `ffmpeg -loglevel error -f concat -safe 0 -i "${listFile}" -vn -c:a libopus -b:a 64k -y "${output}"`
+            );
+
+            if (!fs.existsSync(output)) {
+                throw new Error("Merged recording not created");
+            }
+
+            const stats = fs.statSync(output);
+            if (!stats.size) {
+                throw new Error("Merged recording is empty");
+            }
+
+            await this.callLogRepository.update(callLogId, {
+                recordingPath: output,
+                recordingProcessing: false,
+                hasRecording: true,
+                recordingSize: stats.size,
+                recordingMimeType: "audio/webm",
+            });
+        } catch (error) {
+            console.error(`Failed to process recording for callLogId=${callLogId}:`, error);
+            await this.callLogRepository.update(callLogId, {
+                recordingProcessing: false,
+                hasRecording: false,
+            });
+        }
     }
+
 
     getRecordingStream(callLogId: number) {
         return this.callLogRepository.findOne({

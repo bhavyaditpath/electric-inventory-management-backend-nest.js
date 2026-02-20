@@ -266,7 +266,7 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
 
     await this.callLogsService.markCallAnswered(callLogId);
 
-    this.sendToUser(data.callerId, 'callAccepted', { receiverId });
+    this.sendToUser(data.callerId, 'callAccepted', { receiverId, callLogId });
   }
 
   // ================= REJECT =================

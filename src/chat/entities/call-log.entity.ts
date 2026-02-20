@@ -39,7 +39,7 @@ export class CallLog extends BaseEntityClass {
   duration: number | null; // seconds
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  recordingPath?: string | null;
+  recordingPath: string | null;
 
   @Column({ type: 'boolean', default: false })
   recordingProcessing: boolean;
@@ -48,11 +48,11 @@ export class CallLog extends BaseEntityClass {
   recordingChunks: number;
 
   @Column({ type: 'int', nullable: true })
-  recordingSize?: number;
+  recordingSize: number | null;
 
   @Column({ type: 'varchar', nullable: true })
-  recordingMimeType?: string;
+  recordingMimeType: string | null;
 
   @Column({ type: 'boolean', default: false })
-  hasRecording?: boolean;
+  hasRecording: boolean;
 }

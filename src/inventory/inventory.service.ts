@@ -79,6 +79,7 @@ export class InventoryService {
           brand: r.brand,
           currentQuantity: 0,
           unit: r.unit,
+          pricePerUnit: r.pricePerUnit,
           lowStockThreshold: r.lowStockThreshold,
           branchId: r.branchId,
           branch: r.branch ? { id: r.branch.id, name: r.branch.name } : null,

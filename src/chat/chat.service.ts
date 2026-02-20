@@ -621,6 +621,49 @@ export class ChatService {
     return ApiResponseUtil.success(null, 'Participant removed');
   }
 
+  async updateGroupRoomName(roomId: number, userId: number, name: string): Promise<ApiResponse> {
+    const room = await this.chatRoomRepository.findOne({
+      where: { id: roomId, isRemoved: false },
+      select: { id: true, isGroupChat: true, name: true },
+    });
+    if (!room) {
+      return ApiResponseUtil.error('Chat room not found');
+    }
+    if (!room.isGroupChat) {
+      return ApiResponseUtil.error('Cannot rename a direct chat');
+    }
+
+    const isParticipant = await this.isUserInRoom(roomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const normalizedName = (name || '').trim();
+    if (!normalizedName) {
+      return ApiResponseUtil.error('Group name is required');
+    }
+    if (room.name === normalizedName) {
+      return ApiResponseUtil.success({ id: roomId, name: room.name }, 'No changes detected');
+    }
+
+    await this.chatRoomRepository.update(roomId, {
+      name: normalizedName,
+      updatedBy: userId,
+      updatedAt: new Date(),
+    });
+
+    this.chatGateway.sendToRoom(roomId, 'roomUpdated', {
+      id: roomId,
+      name: normalizedName,
+      isGroupChat: true,
+    });
+
+    return ApiResponseUtil.success(
+      { id: roomId, name: normalizedName },
+      'Group room name updated successfully',
+    );
+  }
+
   async getUsersForChat(userId: number, search?: string): Promise<ApiResponse> {
     const requester = await this.userRepository.findOne({ where: { id: userId } });
     if (!requester) {

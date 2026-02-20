@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -27,6 +28,7 @@ import { AddParticipantsDto } from '../dto/add-participants.dto';
 import { PinChatRoomDto } from '../dto/pin-chat-room.dto';
 import { RemoveParticipantDto } from '../dto/remove-participant.dto';
 import { ToggleMessageReactionDto } from '../dto/toggle-message-reaction.dto';
+import { UpdateChatRoomNameDto } from '../dto/update-chat-room-name.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { ApiResponseUtil } from '../../shared/api-response';
 
@@ -116,6 +118,15 @@ export class ChatController {
     @Request() req,
   ) {
     return this.chatService.setRoomPinned(roomId, req.user.id, dto.pinned);
+  }
+
+  @Patch('rooms/:roomId/name')
+  async updateRoomName(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Body() dto: UpdateChatRoomNameDto,
+    @Request() req,
+  ) {
+    return this.chatService.updateGroupRoomName(roomId, req.user.id, dto.name);
   }
 
   @Get('users')

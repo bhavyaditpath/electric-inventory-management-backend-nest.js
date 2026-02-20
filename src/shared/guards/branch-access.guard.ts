@@ -1,4 +1,10 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UserRole } from '../enums/role.enum';
 
 @Injectable()
@@ -6,9 +12,13 @@ export class BranchAccessGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
     const { user } = request;
-    const params = request.params;
-    const body = request.body;
-    const query = request.query;
+    const params = request.params ?? {};
+    const body = request.body ?? {};
+    const query = request.query ?? {};
+
+    if (!user) {
+      throw new UnauthorizedException('Authentication required.');
+    }
 
     // Admins have access to everything
     if (user.role === UserRole.ADMIN) {

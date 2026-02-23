@@ -7,9 +7,11 @@ import { User } from '../user/entities/user.entity';
 import { ReportPreference } from './entities/report-preference.entity';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationModule } from '../notification/notification.module';
+import { Branch } from 'src/branch/entities/branch.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Purchase, User, ReportPreference]), AuthModule, NotificationModule],
+  imports: [TypeOrmModule.forFeature([Purchase, User, ReportPreference, Branch
+  ]), AuthModule, NotificationModule],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

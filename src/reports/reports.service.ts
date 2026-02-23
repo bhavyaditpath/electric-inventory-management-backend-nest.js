@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as ExcelJS from 'exceljs';
 import { Purchase } from '../purchase/entities/purchase.entity';
 import { User } from '../user/entities/user.entity';
+import { Branch } from 'src/branch/entities/branch.entity';
 import { ReportPreference } from './entities/report-preference.entity';
 import { CreateReportPreferenceDto } from './dto/create-report-preference.dto';
 import { UpdateReportPreferenceDto } from './dto/update-report-preference.dto';
@@ -23,6 +24,8 @@ export class ReportsService {
   constructor(
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
+    @InjectRepository(Branch)
+    private branchRepository: Repository<Branch>,
     @InjectRepository(ReportPreference)
     private reportPreferenceRepository: Repository<ReportPreference>,
     private emailService: EmailService,
@@ -245,61 +248,155 @@ export class ReportsService {
     }
   }
 
-  private createReportWorkbook(reportType: ReportType, reportData: any, user?: User): ExcelJS.Workbook {
+  private async resolveBranchName(user?: User): Promise<string> {
+    if (!user) {
+      return 'All Branches';
+    }
+
+    if (user.branch?.name) {
+      return user.branch.name;
+    }
+
+    if (!user.branchId) {
+      return 'All Branches';
+    }
+
+    const branch = await this.branchRepository.findOne({
+      where: { id: user.branchId },
+      select: ['name'],
+    });
+
+    return branch?.name ?? `Branch ${user.branchId}`;
+  }
+
+
+  private async createReportWorkbook(reportType: ReportType, reportData: any, user?: User): Promise<ExcelJS.Workbook> {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`);
+    workbook.creator = 'Inventory Reporting Service';
+    workbook.lastModifiedBy = 'Inventory Reporting Service';
+    workbook.created = new Date();
+    workbook.modified = new Date();
 
-    // Add report metadata
-    worksheet.addRow(['Report Type', reportType.toUpperCase()]);
-    worksheet.addRow(['Generated At', new Date().toLocaleString('en-GB', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      hour12: true
-    })]);
-    worksheet.addRow(['Branch ID', user ? user.branchId : 'All Branches']);
-    worksheet.addRow(['Period Start', reportData.period.startDate.toLocaleString('en-GB', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      hour12: true
-    })]);
-    worksheet.addRow(['Period End', reportData.period.endDate.toLocaleString('en-GB', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      hour12: true
-    })]);
-    worksheet.addRow([]); // Empty row
+    const reportTitle = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
+    const worksheet = workbook.addWorksheet(reportTitle, {
+      properties: { defaultRowHeight: 20 },
+      views: [{ showGridLines: true }],
+    });
 
-    // Add summary section
-    worksheet.addRow(['SUMMARY']);
-    worksheet.addRow(['Total Purchases', reportData.summary.totalPurchases]);
-    worksheet.addRow(['Total Quantity', reportData.summary.totalQuantity]);
-    worksheet.addRow(['Total Price', reportData.summary.totalPrice]);
-    worksheet.addRow(['Average Price', reportData.summary.averagePrice]);
-    worksheet.addRow([]); // Empty row
+    const createdAt = new Date();
+    const startDate = new Date(reportData.period.startDate);
+    const endDate = new Date(reportData.period.endDate);
+    const branchName = await this.resolveBranchName(user);
 
-    // Style the headers
-    worksheet.getCell('A1').font = { bold: true };
-    worksheet.getCell('A7').font = { bold: true };
-    worksheet.getCell('A8').font = { bold: true };
-    worksheet.getCell('A9').font = { bold: true };
-    worksheet.getCell('A10').font = { bold: true };
-    worksheet.getCell('A11').font = { bold: true };
+    const sectionHeaderFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FFF3F4F6' },
+    };
+    const titleFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
+      fgColor: { argb: 'FF1F2937' },
+    };
+    const thinBorder = {
+      top: { style: 'thin' as const, color: { argb: 'FFD1D5DB' } },
+      left: { style: 'thin' as const, color: { argb: 'FFD1D5DB' } },
+      bottom: { style: 'thin' as const, color: { argb: 'FFD1D5DB' } },
+      right: { style: 'thin' as const, color: { argb: 'FFD1D5DB' } },
+    };
 
-    // Auto-fit columns
-    worksheet.columns.forEach(column => {
-      column.width = 20;
+    worksheet.columns = [
+      { header: 'Metric', key: 'metric', width: 32 },
+      { header: 'Value', key: 'value', width: 30 },
+    ];
+
+    worksheet.mergeCells('A1:B1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = reportTitle;
+    titleCell.font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill = titleFill;
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    worksheet.addRow([]);
+
+    const metadataHeaderRow = worksheet.addRow(['Report Metadata', '']);
+    worksheet.mergeCells(`A${metadataHeaderRow.number}:B${metadataHeaderRow.number}`);
+    metadataHeaderRow.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF111827' } };
+    metadataHeaderRow.getCell(1).fill = sectionHeaderFill;
+    metadataHeaderRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    const metadataRows: Array<{ label: string; value: string | number | Date }> = [
+      { label: 'Report Type', value: reportType.toUpperCase() },
+      { label: 'Generated At', value: createdAt },
+      { label: 'Branch Name', value: branchName },
+      { label: 'Period Start', value: startDate },
+      { label: 'Period End', value: endDate },
+    ];
+
+    metadataRows.forEach((item) => {
+      const row = worksheet.addRow([item.label, item.value]);
+      row.getCell(1).font = { bold: true, color: { argb: 'FF374151' } };
+      row.getCell(1).fill = sectionHeaderFill;
+      row.getCell(1).border = thinBorder;
+      row.getCell(2).border = thinBorder;
+      row.getCell(1).alignment = { vertical: 'middle' };
+      row.getCell(2).alignment = { vertical: 'middle' };
+
+      if (item.value instanceof Date) {
+        row.getCell(2).numFmt = 'dd-mmm-yyyy hh:mm:ss';
+      }
+    });
+
+    worksheet.addRow([]);
+
+    const summaryHeaderRow = worksheet.addRow(['Summary', '']);
+    worksheet.mergeCells(`A${summaryHeaderRow.number}:B${summaryHeaderRow.number}`);
+    summaryHeaderRow.getCell(1).font = { bold: true, size: 11, color: { argb: 'FF111827' } };
+    summaryHeaderRow.getCell(1).fill = sectionHeaderFill;
+    summaryHeaderRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    const summaryRows: Array<{ label: string; value: number; format?: string }> = [
+      { label: 'Total Purchases', value: Number(reportData.summary.totalPurchases) || 0, format: '#,##0' },
+      { label: 'Total Quantity', value: Number(reportData.summary.totalQuantity) || 0, format: '#,##0.00' },
+      { label: 'Total Price', value: Number(reportData.summary.totalPrice) || 0, format: '#,##0.00' },
+      { label: 'Average Price', value: Number(reportData.summary.averagePrice) || 0, format: '#,##0.00' },
+    ];
+
+    summaryRows.forEach((item) => {
+      const row = worksheet.addRow([item.label, item.value]);
+      row.getCell(1).font = { bold: true, color: { argb: 'FF374151' } };
+      row.getCell(1).fill = sectionHeaderFill;
+      row.getCell(1).border = thinBorder;
+      row.getCell(2).border = thinBorder;
+      row.getCell(1).alignment = { vertical: 'middle' };
+      row.getCell(2).alignment = { vertical: 'middle', horizontal: 'right' };
+
+      if (item.format) {
+        row.getCell(2).numFmt = item.format;
+      }
+    });
+
+    worksheet.eachRow((row) => {
+      row.height = 20;
+    });
+
+    worksheet.getRow(1).height = 28;
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    worksheet.columns.forEach((column) => {
+      let maxLength = 14;
+      if (!column.eachCell) {
+        column.width = 20;
+        return;
+      }
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        const rawValue = cell.value;
+        const cellText = typeof rawValue === 'object' && rawValue !== null && 'text' in rawValue
+          ? String((rawValue as { text?: string }).text || '')
+          : String(rawValue ?? '');
+        maxLength = Math.max(maxLength, cellText.length + 2);
+      });
+      column.width = Math.min(Math.max(maxLength, 18), 45);
     });
 
     return workbook;
@@ -314,7 +411,7 @@ export class ReportsService {
     const fileName = this.generateReportFileName(reportType, user);
     const filePath = path.join(folderPath, fileName);
 
-    const workbook = this.createReportWorkbook(reportType, reportData, user);
+    const workbook = await this.createReportWorkbook(reportType, reportData, user);
     await workbook.xlsx.writeFile(filePath);
 
     return filePath;
@@ -322,7 +419,7 @@ export class ReportsService {
 
   private async generateReportBuffer(reportType: ReportType, user?: User): Promise<Buffer> {
     const reportData = await this.generateReportData(reportType, user);
-    const workbook = this.createReportWorkbook(reportType, reportData, user);
+    const workbook = await this.createReportWorkbook(reportType, reportData, user);
     return await workbook.xlsx.writeBuffer() as any;
   }
 

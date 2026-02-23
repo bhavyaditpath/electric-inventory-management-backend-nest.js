@@ -100,39 +100,40 @@ export class AlertService {
       const minStock = Number(item.minstock);
       const productName = item.productname;
       const brand = item.brand;
+      const alertItemName = `${productName} (${brand})`;
 
       const alertType =
         currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
 
-      // Get any existing alert regardless of status
-      const existingAlert = await this.findExistingAnyStatusAlert(
-        productName,
-        brand,
-        branchId,
-        alertType,
-      );
-
-      if (
-        existingAlert &&
-        (existingAlert.status === AlertStatus.DISMISSED ||
-          existingAlert.status === AlertStatus.RESOLVED)
-      ) {
-        continue;
-      }
+      const activeAlerts = await this.alertRepository
+        .createQueryBuilder('alert')
+        .where('alert.itemName = :itemName', { itemName: alertItemName })
+        .andWhere('alert.branchId = :branchId', { branchId })
+        .andWhere('alert.status = :status', { status: AlertStatus.ACTIVE })
+        .andWhere('(alert.isRemoved = false OR alert.isRemoved IS NULL)')
+        .orderBy('alert.createdAt', 'DESC')
+        .getMany();
 
       if (currentStock <= minStock) {
         const shortage = minStock - currentStock;
 
-        if (existingAlert) {
-          if (existingAlert.status === AlertStatus.ACTIVE) {
-            existingAlert.currentStock = currentStock;
-            existingAlert.shortage = shortage;
-            existingAlert.priority = this.calculatePriority(shortage, minStock);
-            await this.alertRepository.save(existingAlert);
+        if (activeAlerts.length > 0) {
+          const [primaryAlert, ...duplicateAlerts] = activeAlerts;
+          primaryAlert.currentStock = currentStock;
+          primaryAlert.minStock = minStock;
+          primaryAlert.shortage = shortage;
+          primaryAlert.alertType = alertType;
+          primaryAlert.priority = this.calculatePriority(shortage, minStock);
+          await this.alertRepository.save(primaryAlert);
+
+          for (const duplicate of duplicateAlerts) {
+            duplicate.status = AlertStatus.RESOLVED;
+            duplicate.resolvedDate = new Date();
+            await this.alertRepository.save(duplicate);
           }
         } else {
           await this.create({
-            itemName: `${productName} (${brand})`,
+            itemName: alertItemName,
             currentStock,
             minStock,
             shortage,
@@ -141,10 +142,12 @@ export class AlertService {
           });
         }
       } else {
-        if (existingAlert && existingAlert.status === AlertStatus.ACTIVE) {
-          existingAlert.status = AlertStatus.RESOLVED;
-          existingAlert.resolvedDate = new Date();
-          await this.alertRepository.save(existingAlert);
+        if (activeAlerts.length > 0) {
+          for (const activeAlert of activeAlerts) {
+            activeAlert.status = AlertStatus.RESOLVED;
+            activeAlert.resolvedDate = new Date();
+            await this.alertRepository.save(activeAlert);
+          }
         }
       }
     }
@@ -191,63 +194,61 @@ export class AlertService {
     return AlertPriority.LOW;
   }
   async updateProductAlert(
-  itemName: string,
-  brand: string,
-  branchId: number,
-  currentStock: number,
-  minStock: number
-) {
-  const alertType =
-    currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
+    itemName: string,
+    brand: string,
+    branchId: number,
+    currentStock: number,
+    minStock: number
+  ) {
+    const alertType =
+      currentStock <= 0 ? AlertType.OUT_OF_STOCK : AlertType.LOW_STOCK;
+    const alertItemName = `${itemName} (${brand})`;
 
-  // First resolve any other active alerts for this product
-  const activeAlerts = await this.alertRepository.find({
-    where: {
-      itemName: `${itemName} (${brand})`,
-      branchId,
-      status: AlertStatus.ACTIVE,
-    },
-  });
+    const activeAlerts = await this.alertRepository
+      .createQueryBuilder('alert')
+      .where('alert.itemName = :itemName', { itemName: alertItemName })
+      .andWhere('alert.branchId = :branchId', { branchId })
+      .andWhere('alert.status = :status', { status: AlertStatus.ACTIVE })
+      .andWhere('(alert.isRemoved = false OR alert.isRemoved IS NULL)')
+      .orderBy('alert.createdAt', 'DESC')
+      .getMany();
 
-  for (const a of activeAlerts) {
-    // If stock is healthy, resolve all active alerts
     if (currentStock > minStock) {
-      a.status = AlertStatus.RESOLVED;
-      a.resolvedDate = new Date();
-      await this.alertRepository.save(a);
+      for (const a of activeAlerts) {
+        a.status = AlertStatus.RESOLVED;
+        a.resolvedDate = new Date();
+        await this.alertRepository.save(a);
+      }
+      return;
     }
-  }
 
-  // If stock is healthy, no need to create new alerts
-  if (currentStock > minStock) return;
+    const shortage = Math.max(0, minStock - currentStock);
+    if (activeAlerts.length > 0) {
+      const [primaryAlert, ...duplicateAlerts] = activeAlerts;
+      primaryAlert.currentStock = currentStock;
+      primaryAlert.minStock = minStock;
+      primaryAlert.shortage = shortage;
+      primaryAlert.alertType = alertType;
+      primaryAlert.priority = this.calculatePriority(shortage, minStock);
+      await this.alertRepository.save(primaryAlert);
 
-  // Check if alert of this type already exists
-  const existing = await this.alertRepository.findOne({
-    where: {
-      itemName: `${itemName} (${brand})`,
-      branchId,
+      for (const duplicate of duplicateAlerts) {
+        duplicate.status = AlertStatus.RESOLVED;
+        duplicate.resolvedDate = new Date();
+        await this.alertRepository.save(duplicate);
+      }
+      return;
+    }
+
+    await this.create({
+      itemName: alertItemName,
+      currentStock,
+      minStock,
+      shortage,
       alertType,
-      status: AlertStatus.ACTIVE,
-    },
-  });
-
-  if (existing) {
-    existing.currentStock = currentStock;
-    existing.shortage = Math.max(0, minStock - currentStock);
-    existing.priority = this.calculatePriority(existing.shortage, minStock);
-    await this.alertRepository.save(existing);
-    return;
+      branchId,
+    });
   }
-
-  await this.create({
-    itemName: `${itemName} (${brand})`,
-    currentStock,
-    minStock,
-    shortage: Math.max(0, minStock - currentStock),
-    alertType,
-    branchId,
-  });
-}
 
   private async createAlertNotifications(alert: StockAlert): Promise<void> {
     try {

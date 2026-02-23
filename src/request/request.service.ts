@@ -45,6 +45,19 @@ export class RequestService {
     if (requestingUser.role !== UserRole.BRANCH)
       return ApiResponseUtil.error('Only branch users can create requests');
 
+    const branchPurchase = await this.purchaseRepository.findOne({
+      where: {
+        id: createRequestDto.purchaseId,
+        userId: requestingUser.id,
+        branchId: requestingUser.branchId,
+        isRemoved: false,
+      },
+    });
+
+    if (!branchPurchase) {
+      return ApiResponseUtil.error('Invalid purchase. Branch can request only their own purchase order');
+    }
+
     const request = this.requestRepository.create({
       ...createRequestDto,
       requestingUserId: requestingUser.id,

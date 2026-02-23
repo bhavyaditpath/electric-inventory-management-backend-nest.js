@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ExcelJS from 'exceljs';
@@ -24,6 +24,8 @@ export class ReportsService {
   constructor(
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     @InjectRepository(Branch)
     private branchRepository: Repository<Branch>,
     @InjectRepository(ReportPreference)
@@ -428,7 +430,8 @@ export class ReportsService {
     const subject = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
     const generatedDate = new Date().toLocaleString();
     const reportTypeDisplay = reportType.charAt(0).toUpperCase() + reportType.slice(1).toLowerCase();
-    const branchDisplay = user ? `Branch ID: ${user.branchId}` : 'All Branches';
+    const branchName = await this.resolveBranchName(user);
+    const branchDisplay = user ? `Branch: ${branchName}` : 'All Branches';
 
     const html = renderTemplate("report-email", {
       reportTypeDisplay,
@@ -474,64 +477,109 @@ export class ReportsService {
     return 'Scheduled reports generated successfully';
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron('59 59 23 * * *')
   async handleDailyReports() {
     console.log('Generating daily reports...');
-    await this.processReportsByType(ReportType.DAILY);
+    await this.processBranchWiseReportType(ReportType.DAILY);
   }
 
-  @Cron(CronExpression.EVERY_WEEK)
+  @Cron('59 59 23 * * 0')
   async handleWeeklyReports() {
     console.log('Generating weekly reports...');
-    await this.processReportsByType(ReportType.WEEKLY);
+    await this.processBranchWiseReportType(ReportType.WEEKLY);
   }
 
-  @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
+  @Cron('59 59 23 * * *')
   async handleMonthlyReports() {
-    console.log('Generating monthly reports...');
-    await this.processReportsByType(ReportType.MONTHLY);
+    const now = new Date();
+    if (!this.isMonthEnd(now)) {
+      return;
+    }
+
+    console.log('Generating monthly reports (month-end)...');
+    await this.processBranchWiseReportType(ReportType.MONTHLY);
   }
 
-  @Cron('0 0 1 */6 *') // Every 6 months on the 1st day at midnight
+  @Cron('59 59 23 * * *')
   async handleHalfYearlyReports() {
-    console.log('Generating half-yearly reports...');
-    await this.processReportsByType(ReportType.HALF_YEARLY);
+    const now = new Date();
+    if (!this.isHalfYearEnd(now)) {
+      return;
+    }
+
+    console.log('Generating half-yearly reports (period-end)...');
+    await this.processBranchWiseReportType(ReportType.HALF_YEARLY);
   }
 
-  @Cron(CronExpression.EVERY_YEAR)
+  @Cron('59 59 23 * * *')
   async handleYearlyReports() {
-    console.log('Generating yearly reports...');
-    await this.processReportsByType(ReportType.YEARLY);
+    const now = new Date();
+    if (!this.isYearEnd(now)) {
+      return;
+    }
+
+    console.log('Generating yearly reports (year-end)...');
+    await this.processBranchWiseReportType(ReportType.YEARLY);
   }
 
-  private async processReportsByType(reportType: ReportType): Promise<void> {
-    const preferences = await this.reportPreferenceRepository.find({
-      where: {
-        reportType,
-        isActive: true,
-        isRemoved: false,
-      },
-      relations: ['user'],
+  private isMonthEnd(date: Date): boolean {
+    const tomorrow = new Date(date);
+    tomorrow.setDate(date.getDate() + 1);
+    return tomorrow.getDate() === 1;
+  }
+
+  private isHalfYearEnd(date: Date): boolean {
+    const month = date.getMonth(); // 0-indexed
+    const day = date.getDate();
+    return (month === 5 && day === 30) || (month === 11 && day === 31);
+  }
+
+  private isYearEnd(date: Date): boolean {
+    return date.getMonth() === 11 && date.getDate() === 31;
+  }
+
+  private async processBranchWiseReportType(reportType: ReportType): Promise<void> {
+    const branches = await this.branchRepository.find({
+      where: { isRemoved: false },
+      select: ['id', 'name'],
     });
 
-    for (const preference of preferences) {
+    for (const branch of branches) {
+      const users = await this.userRepository.find({
+        where: { branchId: branch.id, isRemoved: false },
+        select: ['id', 'email', 'username', 'branchId', 'role'],
+      });
+
+      const recipients = Array.from(
+        new Set(
+          users
+            .map((u) => (u.email || u.username || '').trim())
+            .filter((value) => value.length > 0),
+        ),
+      );
+
+      const branchUser = {
+        branchId: branch.id,
+        branch,
+      } as User;
+
       try {
-        if (preference.deliveryMethod === DeliveryMethod.LOCAL_FILE) {
-          await this.generateAndSaveReport(reportType, preference.user);
-          console.log(`Generated ${reportType} report for branch ${preference.user.branchId}`);
-          await this.createReportNotification(preference, reportType, 'saved');
-        } else if (preference.deliveryMethod === DeliveryMethod.EMAIL) {
-          const reportBuffer = await this.generateReportBuffer(reportType, preference.user);
-          await this.sendReportEmail(preference.user.email, reportType, reportBuffer, preference.user);
-          console.log(`Sent ${reportType} report via email to branch ${preference.user.branchId}`);
-          await this.createReportNotification(preference, reportType, 'sent');
+        const filePath = await this.generateAndSaveReport(reportType, branchUser);
+        console.log(`Generated ${reportType} report for branch ${branch.name} at ${filePath}`);
+
+        if (recipients.length > 0) {
+          const reportBuffer = await this.generateReportBuffer(reportType, branchUser);
+          await this.sendReportEmail(recipients.join(','), reportType, reportBuffer, branchUser);
+          console.log(`Sent ${reportType} report email for branch ${branch.name} to ${recipients.length} user(s)`);
+        } else {
+          console.warn(`No report recipients found for branch ${branch.name} (${branch.id})`);
         }
       } catch (error) {
-        console.error(`Failed to generate ${reportType} report for branch ${preference.user.branchId}:`, error);
+        console.error(`Failed to process ${reportType} report for branch ${branch.name} (${branch.id}):`, error);
       }
     }
   }
-
+  
   private async createReportNotification(
     preference: ReportPreference,
     reportType: ReportType,

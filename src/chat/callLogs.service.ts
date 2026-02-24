@@ -27,7 +27,6 @@ export class CallLogsService {
         callerId: number,
         receiverId: number,
         callType: CallType = CallType.AUDIO,
-        sessionId?: string,
     ) {
         const log = this.callLogRepository.create({
             roomId,
@@ -35,7 +34,6 @@ export class CallLogsService {
             receiverId,
             status: CallLogsStatus.MISSED,
             callType,
-            sessionId: sessionId ?? null,
             startedAt: null,
             endedAt: null,
             duration: null,

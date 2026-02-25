@@ -29,6 +29,7 @@ import { PinChatRoomDto } from '../dto/pin-chat-room.dto';
 import { RemoveParticipantDto } from '../dto/remove-participant.dto';
 import { ToggleMessageReactionDto } from '../dto/toggle-message-reaction.dto';
 import { UpdateChatRoomNameDto } from '../dto/update-chat-room-name.dto';
+import { EditMessageDto } from '../dto/edit-message.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { ApiResponseUtil } from '../../shared/api-response';
 
@@ -193,6 +194,15 @@ export class ChatController {
   @Delete('messages/:messageId')
   async deleteMessage(@Param('messageId', ParseIntPipe) messageId: number, @Request() req) {
     return this.chatService.deleteMessage(messageId, req.user.id);
+  }
+
+  @Patch('messages/:messageId')
+  async editMessage(
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Body() dto: EditMessageDto,
+    @Request() req,
+  ) {
+    return this.chatService.editMessage(messageId, req.user.id, dto.content);
   }
 
   @Post('messages/:messageId/reactions')

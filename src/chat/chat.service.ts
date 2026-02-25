@@ -1009,6 +1009,59 @@ export class ChatService {
     return ApiResponseUtil.success(null, 'Message deleted');
   }
 
+  async editMessage(messageId: number, userId: number, content: string): Promise<ApiResponse> {
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, isRemoved: false },
+      select: { id: true, senderId: true, chatRoomId: true, content: true },
+    });
+    if (!message) {
+      return ApiResponseUtil.error('Message not found');
+    }
+
+    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    if (message.senderId !== userId) {
+      return ApiResponseUtil.error('Only message sender can edit message');
+    }
+
+    const normalizedContent = (content || '').trim();
+    if (!normalizedContent) {
+      return ApiResponseUtil.error('Message content is required');
+    }
+
+    if (message.content === normalizedContent) {
+      return ApiResponseUtil.success(null, 'No changes detected');
+    }
+
+    await this.chatMessageRepository.update(messageId, {
+      content: normalizedContent,
+      updatedBy: userId,
+      updatedAt: new Date(),
+    });
+
+    const updatedMessage = await this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
+      .select(this.getMessageSelectFields(true))
+      .where('message.id = :messageId', { messageId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('deletion.id IS NULL')
+      .getOne();
+
+    const mappedMessage = updatedMessage ? this.toMessageDto(updatedMessage, userId) : null;
+    if (mappedMessage) {
+      this.chatGateway.sendToRoom(message.chatRoomId, 'messageUpdated', mappedMessage);
+    }
+
+    return ApiResponseUtil.success(mappedMessage, 'Message updated successfully');
+  }
+
   async setRoomPinned(roomId: number, userId: number, pinned: boolean): Promise<ApiResponse> {
     const isParticipant = await this.isUserInRoom(roomId, userId);
     if (!isParticipant) {

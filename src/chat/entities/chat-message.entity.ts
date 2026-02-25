@@ -25,6 +25,19 @@ export class ChatMessage extends BaseEntityClass {
   @Column({ type: 'text' })
   content: string;
 
+  @Column({ type: 'int', nullable: true })
+  replyToMessageId: number | null;
+
+  @ManyToOne(() => ChatMessage, (message) => message.replies, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'replyToMessageId' })
+  replyToMessage: ChatMessage | null;
+
+  @OneToMany(() => ChatMessage, (message) => message.replyToMessage)
+  replies: ChatMessage[];
+
   @OneToMany(() => ChatAttachment, (attachment) => attachment.message)
   attachments: ChatAttachment[];
 

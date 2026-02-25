@@ -10,4 +10,9 @@ export class SendMessageDto {
   @IsString()
   @IsNotEmpty()
   content?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  replyToMessageId?: number;
 }

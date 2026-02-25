@@ -16,6 +16,7 @@ import { RemoveParticipantDto } from './dto/remove-participant.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { UserRole } from '../shared/enums/role.enum';
 import { ChatGateway } from './Gateways/chat/chat.gateway';
+import { MessageNotificationPayload } from './types/message-notification.type';
 
 @Injectable()
 export class ChatService {
@@ -245,6 +246,30 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
+    let replyToMessageId: number | null = null;
+    if (dto.replyToMessageId !== undefined && dto.replyToMessageId !== null) {
+      const replyMessage = await this.chatMessageRepository
+        .createQueryBuilder('message')
+        .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', {
+          userId: senderId,
+        })
+        .select(['message.id', 'message.chatRoomId'])
+        .where('message.id = :replyToMessageId', { replyToMessageId: dto.replyToMessageId })
+        .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+        .andWhere('deletion.id IS NULL')
+        .getOne();
+
+      if (!replyMessage) {
+        return ApiResponseUtil.error('Reply message not found');
+      }
+
+      if (replyMessage.chatRoomId !== dto.chatRoomId) {
+        return ApiResponseUtil.error('Reply message must belong to the same room');
+      }
+
+      replyToMessageId = replyMessage.id;
+    }
+
     const trimmedContent = (dto.content ?? '').trim();
     const hasFiles = !!files && files.length > 0;
 
@@ -257,6 +282,7 @@ export class ChatService {
       chatRoomId: dto.chatRoomId,
       senderId,
       content: trimmedContent, // normalized content
+      replyToMessageId,
     });
 
     const savedMessage = await this.chatMessageRepository.save(message);
@@ -279,6 +305,8 @@ export class ChatService {
     const fullMessage = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .select(this.getMessageSelectFields(false))
@@ -300,14 +328,17 @@ export class ChatService {
       for (const p of recipients) {
         if (p.userId === senderId) continue;
 
-        this.chatGateway.sendToUser(p.userId, "messageNotification", {
+        const notificationPayload: MessageNotificationPayload = {
           messageId: mappedMessage.id,
           chatRoomId: mappedMessage.chatRoomId,
           senderId,
           senderName,
           content: mappedMessage.content,
+          replyTo: mappedMessage.replyTo,
           createdAt: mappedMessage.createdAt,
-        });
+        };
+
+        this.chatGateway.sendToUser(p.userId, 'messageNotification', notificationPayload);
       }
     }
 
@@ -328,6 +359,8 @@ export class ChatService {
     const [messages, total] = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -739,6 +772,8 @@ export class ChatService {
     return this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -755,9 +790,17 @@ export class ChatService {
       'message.id',
       'message.chatRoomId',
       'message.senderId',
+      'message.replyToMessageId',
       'message.content',
       'message.createdAt',
+      'message.updatedAt',
       'sender.username',
+      'replyToMessage.id',
+      'replyToMessage.senderId',
+      'replyToMessage.content',
+      'replyToMessage.createdAt',
+      'replyToMessage.isRemoved',
+      'replySender.username',
       'attachments.id',
       'attachments.messageId',
       'attachments.url',
@@ -806,13 +849,31 @@ export class ChatService {
       reactionsMap.set(reaction.emoji, users);
     }
 
+    const replyIsRemoved = !!message.replyToMessage?.isRemoved;
+
     return {
       id: message.id,
       chatRoomId: message.chatRoomId,
       senderId: message.senderId,
+      replyToMessageId: message.replyToMessageId,
       content: message.content,
       createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
       isRemoved: message.isRemoved,
+      replyTo: message.replyToMessage
+        ? {
+          id: message.replyToMessage.id,
+          senderId: message.replyToMessage.senderId,
+          senderName: replyIsRemoved
+            ? message.replyToMessage.sender?.username || 'Deleted user'
+            : message.replyToMessage.sender?.username || 'Unknown user',
+          content: replyIsRemoved
+            ? 'This message was deleted'
+            : message.replyToMessage.content,
+          createdAt: message.replyToMessage.createdAt,
+          isRemoved: replyIsRemoved,
+        }
+        : null,
       attachments: (message.attachments || []).map((a) => ({
         id: a.id,
         url: a.url,
@@ -936,6 +997,8 @@ export class ChatService {
     const updatedMessage = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -1045,6 +1108,8 @@ export class ChatService {
     const updatedMessage = await this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })

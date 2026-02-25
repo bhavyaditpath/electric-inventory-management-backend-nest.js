@@ -1,6 +1,6 @@
 import { Injectable, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, SelectQueryBuilder } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
@@ -305,20 +305,10 @@ export class ChatService {
 
     await this.chatRoomRepository.update(dto.chatRoomId, { updatedAt: new Date() });
 
-    const fullMessage = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-      .leftJoin('replyToMessage.sender', 'replySender')
-      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .leftJoinAndSelect('message.reactions', 'reactions')
-      .select(this.getMessageSelectFields(false))
-      .where('message.id = :id', { id: savedMessage.id })
-      .getOne();
-
-    const mappedMessage = fullMessage ? this.toMessageDto(fullMessage, senderId) : null;
+    const mappedMessage = await this.getMappedMessageById(savedMessage.id, senderId, {
+      includeIsRemoved: false,
+      excludeDeletedForUser: false,
+    });
 
     if (options?.emit !== false && mappedMessage) {
       this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', mappedMessage);
@@ -339,17 +329,11 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
-    const [messages, total] = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-      .leftJoin('replyToMessage.sender', 'replySender')
-      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .leftJoinAndSelect('message.reactions', 'reactions')
-      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
-      .select(this.getMessageSelectFields(true))
+    const [messages, total] = await this.createMessageDetailsQuery({
+      includeIsRemoved: true,
+      currentUserId: userId,
+      excludeDeletedForUser: true,
+    })
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .andWhere('deletion.id IS NULL')
@@ -487,22 +471,10 @@ export class ChatService {
     const forwardedMessages: any[] = [];
 
     for (const item of forwardedMessageMeta) {
-      const fullForwardedMessage = await this.chatMessageRepository
-        .createQueryBuilder('message')
-        .leftJoin('message.sender', 'sender')
-        .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-        .leftJoin('replyToMessage.sender', 'replySender')
-        .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-        .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-        .leftJoinAndSelect('message.attachments', 'attachments')
-        .leftJoinAndSelect('message.reactions', 'reactions')
-        .select(this.getMessageSelectFields(false))
-        .where('message.id = :id', { id: item.id })
-        .getOne();
-
-      const mappedForwardedMessage = fullForwardedMessage
-        ? this.toMessageDto(fullForwardedMessage, userId)
-        : null;
+      const mappedForwardedMessage = await this.getMappedMessageById(item.id, userId, {
+        includeIsRemoved: false,
+        excludeDeletedForUser: false,
+      });
 
       if (mappedForwardedMessage) {
         forwardedMessages.push(mappedForwardedMessage);
@@ -901,6 +873,63 @@ export class ChatService {
     );
   }
 
+  private createMessageDetailsQuery(options: {
+    includeIsRemoved: boolean;
+    currentUserId?: number;
+    excludeDeletedForUser?: boolean;
+  }): SelectQueryBuilder<ChatMessage> {
+    const {
+      includeIsRemoved,
+      currentUserId,
+      excludeDeletedForUser = false,
+    } = options;
+
+    const query = this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+      .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
+      .leftJoinAndSelect('message.reactions', 'reactions')
+      .select(this.getMessageSelectFields(includeIsRemoved));
+
+    if (excludeDeletedForUser && typeof currentUserId === 'number') {
+      query.leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', {
+        userId: currentUserId,
+      });
+    }
+
+    return query;
+  }
+
+  private async getMappedMessageById(
+    messageId: number,
+    currentUserId: number,
+    options: {
+      includeIsRemoved: boolean;
+      excludeDeletedForUser: boolean;
+      requireNotRemoved?: boolean;
+    },
+  ) {
+    const query = this.createMessageDetailsQuery({
+      includeIsRemoved: options.includeIsRemoved,
+      currentUserId,
+      excludeDeletedForUser: options.excludeDeletedForUser,
+    }).where('message.id = :messageId', { messageId });
+
+    if (options.requireNotRemoved) {
+      query.andWhere('message.isRemoved = :isRemoved', { isRemoved: false });
+    }
+    if (options.excludeDeletedForUser) {
+      query.andWhere('deletion.id IS NULL');
+    }
+
+    const message = await query.getOne();
+    return message ? this.toMessageDto(message, currentUserId) : null;
+  }
+
   private async emitMessageNotificationToRecipients(
     chatRoomId: number,
     senderId: number,
@@ -933,17 +962,11 @@ export class ChatService {
   }
 
   private async getLastMessage(roomId: number, userId: number): Promise<ChatMessage | null> {
-    return this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-      .leftJoin('replyToMessage.sender', 'replySender')
-      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .leftJoinAndSelect('message.reactions', 'reactions')
-      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
-      .select(this.getMessageSelectFields(true))
+    return this.createMessageDetailsQuery({
+      includeIsRemoved: true,
+      currentUserId: userId,
+      excludeDeletedForUser: true,
+    })
       .where('message.chatRoomId = :roomId', { roomId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .andWhere('deletion.id IS NULL')
@@ -1196,23 +1219,11 @@ export class ChatService {
       reacted = true;
     }
 
-    const updatedMessage = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-      .leftJoin('replyToMessage.sender', 'replySender')
-      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .leftJoinAndSelect('message.reactions', 'reactions')
-      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
-      .select(this.getMessageSelectFields(true))
-      .where('message.id = :messageId', { messageId })
-      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('deletion.id IS NULL')
-      .getOne();
-
-    const mappedMessage = updatedMessage ? this.toMessageDto(updatedMessage, userId) : null;
+    const mappedMessage = await this.getMappedMessageById(messageId, userId, {
+      includeIsRemoved: true,
+      excludeDeletedForUser: true,
+      requireNotRemoved: true,
+    });
 
     if (mappedMessage) {
       this.chatGateway.sendToRoom(message.chatRoomId, 'messageReactionUpdated', mappedMessage);
@@ -1309,23 +1320,11 @@ export class ChatService {
       updatedAt: new Date(),
     });
 
-    const updatedMessage = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
-      .leftJoin('replyToMessage.sender', 'replySender')
-      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
-      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .leftJoinAndSelect('message.reactions', 'reactions')
-      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
-      .select(this.getMessageSelectFields(true))
-      .where('message.id = :messageId', { messageId })
-      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
-      .andWhere('deletion.id IS NULL')
-      .getOne();
-
-    const mappedMessage = updatedMessage ? this.toMessageDto(updatedMessage, userId) : null;
+    const mappedMessage = await this.getMappedMessageById(messageId, userId, {
+      includeIsRemoved: true,
+      excludeDeletedForUser: true,
+      requireNotRemoved: true,
+    });
     if (mappedMessage) {
       this.chatGateway.sendToRoom(message.chatRoomId, 'messageUpdated', mappedMessage);
     }

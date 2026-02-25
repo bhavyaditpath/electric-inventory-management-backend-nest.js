@@ -12,6 +12,7 @@ import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { ForwardMessageDto } from './dto/forward-message.dto';
 import { RemoveParticipantDto } from './dto/remove-participant.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { UserRole } from '../shared/enums/role.enum';
@@ -20,6 +21,8 @@ import { MessageNotificationPayload } from './types/message-notification.type';
 
 @Injectable()
 export class ChatService {
+  private static readonly MAX_FORWARD_TARGETS = 20;
+
   constructor(
     @InjectRepository(ChatRoom)
     private chatRoomRepository: Repository<ChatRoom>,
@@ -307,6 +310,8 @@ export class ChatService {
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
       .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .select(this.getMessageSelectFields(false))
@@ -317,29 +322,7 @@ export class ChatService {
 
     if (options?.emit !== false && mappedMessage) {
       this.chatGateway.sendToRoom(dto.chatRoomId, 'newMessage', mappedMessage);
-
-      const recipients = await this.chatRoomParticipantRepository.find({
-        where: { chatRoomId: dto.chatRoomId, isRemoved: false },
-        select: { userId: true },
-      });
-
-      const senderName = mappedMessage.sender?.username || "Someone";
-
-      for (const p of recipients) {
-        if (p.userId === senderId) continue;
-
-        const notificationPayload: MessageNotificationPayload = {
-          messageId: mappedMessage.id,
-          chatRoomId: mappedMessage.chatRoomId,
-          senderId,
-          senderName,
-          content: mappedMessage.content,
-          replyTo: mappedMessage.replyTo,
-          createdAt: mappedMessage.createdAt,
-        };
-
-        this.chatGateway.sendToUser(p.userId, 'messageNotification', notificationPayload);
-      }
+      await this.emitMessageNotificationToRecipients(dto.chatRoomId, senderId, mappedMessage);
     }
 
     return ApiResponseUtil.success(mappedMessage, 'Message sent successfully');
@@ -361,6 +344,8 @@ export class ChatService {
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
       .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -383,6 +368,154 @@ export class ChatService {
       limit,
       totalPages: Math.ceil(total / limit),
     });
+  }
+
+  async forwardMessage(dto: ForwardMessageDto, userId: number): Promise<ApiResponse> {
+    const uniqueTargetRoomIds = Array.from(new Set(dto.targetRoomIds || []));
+    if (uniqueTargetRoomIds.length === 0) {
+      return ApiResponseUtil.error('At least one target room is required');
+    }
+    if (uniqueTargetRoomIds.length > ChatService.MAX_FORWARD_TARGETS) {
+      return ApiResponseUtil.error(
+        `You can forward to a maximum of ${ChatService.MAX_FORWARD_TARGETS} rooms at once`,
+      );
+    }
+
+    const sourceMessage = await this.chatMessageRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
+      .leftJoin('message.sender', 'sender')
+      .leftJoinAndSelect('message.attachments', 'attachments')
+      .select([
+        'message.id',
+        'message.chatRoomId',
+        'message.senderId',
+        'message.content',
+        'message.createdAt',
+        'sender.username',
+        'attachments.id',
+        'attachments.url',
+        'attachments.mimeType',
+        'attachments.fileName',
+        'attachments.size',
+      ])
+      .where('message.id = :messageId', { messageId: dto.sourceMessageId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('deletion.id IS NULL')
+      .getOne();
+
+    if (!sourceMessage) {
+      return ApiResponseUtil.error('Source message not found');
+    }
+
+    const canViewSource = await this.isUserInRoom(sourceMessage.chatRoomId, userId);
+    if (!canViewSource) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const targetRooms = await this.chatRoomRepository.find({
+      where: { id: In(uniqueTargetRoomIds), isRemoved: false },
+      select: { id: true },
+    });
+    if (targetRooms.length !== uniqueTargetRoomIds.length) {
+      return ApiResponseUtil.error('One or more target rooms not found');
+    }
+
+    const memberships = await this.chatRoomParticipantRepository.find({
+      where: { chatRoomId: In(uniqueTargetRoomIds), userId, isRemoved: false },
+      select: { chatRoomId: true },
+    });
+    const accessibleRoomIds = new Set(memberships.map((m) => m.chatRoomId));
+    const hasInaccessibleRoom = uniqueTargetRoomIds.some((id) => !accessibleRoomIds.has(id));
+    if (hasInaccessibleRoom) {
+      return ApiResponseUtil.error('Access denied for one or more target rooms');
+    }
+
+    const normalizedNote = (dto.note || '').trim();
+    if (normalizedNote.length > 5000) {
+      return ApiResponseUtil.error('Note must be at most 5000 characters');
+    }
+    const forwardedMessageMeta: Array<{ id: number; roomId: number }> = [];
+    const sourceHasAttachments = (sourceMessage.attachments || []).length > 0;
+    const sourceContent = (sourceMessage.content || '').trim();
+    if (!sourceContent && !sourceHasAttachments) {
+      return ApiResponseUtil.error('Nothing to forward');
+    }
+
+    try {
+      await this.chatMessageRepository.manager.transaction(async (manager) => {
+        const messageRepo = manager.getRepository(ChatMessage);
+        const attachmentRepo = manager.getRepository(ChatAttachment);
+        const roomRepo = manager.getRepository(ChatRoom);
+
+        for (const targetRoomId of uniqueTargetRoomIds) {
+          const forwardMessage = messageRepo.create({
+            chatRoomId: targetRoomId,
+            senderId: userId,
+            content: normalizedNote,
+            isForwarded: true,
+            forwardedFromMessageId: sourceMessage.id,
+            forwardedOriginalSenderId: sourceMessage.senderId,
+            forwardedOriginalSenderName: sourceMessage.sender?.username || null,
+            forwardedOriginalCreatedAt: sourceMessage.createdAt,
+            forwardedOriginalContent: sourceContent || null,
+          });
+
+          const savedForwardMessage = await messageRepo.save(forwardMessage);
+
+          if (sourceHasAttachments) {
+            const attachmentEntities = (sourceMessage.attachments || []).map((file) =>
+              attachmentRepo.create({
+                messageId: savedForwardMessage.id,
+                url: file.url,
+                mimeType: file.mimeType,
+                fileName: file.fileName,
+                size: file.size,
+              }),
+            );
+            await attachmentRepo.save(attachmentEntities);
+          }
+
+          await roomRepo.update(targetRoomId, { updatedAt: new Date() });
+          forwardedMessageMeta.push({ id: savedForwardMessage.id, roomId: targetRoomId });
+        }
+      });
+    } catch {
+      return ApiResponseUtil.error('Failed to forward message');
+    }
+
+    const forwardedMessages: any[] = [];
+
+    for (const item of forwardedMessageMeta) {
+      const fullForwardedMessage = await this.chatMessageRepository
+        .createQueryBuilder('message')
+        .leftJoin('message.sender', 'sender')
+        .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
+        .leftJoin('replyToMessage.sender', 'replySender')
+        .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+        .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
+        .leftJoinAndSelect('message.attachments', 'attachments')
+        .leftJoinAndSelect('message.reactions', 'reactions')
+        .select(this.getMessageSelectFields(false))
+        .where('message.id = :id', { id: item.id })
+        .getOne();
+
+      const mappedForwardedMessage = fullForwardedMessage
+        ? this.toMessageDto(fullForwardedMessage, userId)
+        : null;
+
+      if (mappedForwardedMessage) {
+        forwardedMessages.push(mappedForwardedMessage);
+        this.chatGateway.sendToRoom(item.roomId, 'newMessage', mappedForwardedMessage);
+        await this.emitMessageNotificationToRecipients(item.roomId, userId, mappedForwardedMessage);
+      }
+    }
+
+    if (forwardedMessages.length === 0) {
+      return ApiResponseUtil.error('Failed to load forwarded messages');
+    }
+
+    return ApiResponseUtil.success(forwardedMessages, 'Message forwarded successfully');
   }
 
   async markMessagesAsRead(roomId: number, userId: number): Promise<ApiResponse> {
@@ -768,12 +901,45 @@ export class ChatService {
     );
   }
 
+  private async emitMessageNotificationToRecipients(
+    chatRoomId: number,
+    senderId: number,
+    mappedMessage: any,
+  ): Promise<void> {
+    const recipients = await this.chatRoomParticipantRepository.find({
+      where: { chatRoomId, isRemoved: false },
+      select: { userId: true },
+    });
+
+    const senderName = mappedMessage.sender?.username || 'Someone';
+
+    for (const p of recipients) {
+      if (p.userId === senderId) continue;
+
+      const notificationPayload: MessageNotificationPayload = {
+        messageId: mappedMessage.id,
+        chatRoomId: mappedMessage.chatRoomId,
+        senderId,
+        senderName,
+        content: mappedMessage.content,
+        replyTo: mappedMessage.replyTo,
+        isForwarded: mappedMessage.isForwarded,
+        forwardedFrom: mappedMessage.forwardedFrom,
+        createdAt: mappedMessage.createdAt,
+      };
+
+      this.chatGateway.sendToUser(p.userId, 'messageNotification', notificationPayload);
+    }
+  }
+
   private async getLastMessage(roomId: number, userId: number): Promise<ChatMessage | null> {
     return this.chatMessageRepository
       .createQueryBuilder('message')
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
       .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -791,6 +957,12 @@ export class ChatService {
       'message.chatRoomId',
       'message.senderId',
       'message.replyToMessageId',
+      'message.isForwarded',
+      'message.forwardedFromMessageId',
+      'message.forwardedOriginalSenderId',
+      'message.forwardedOriginalSenderName',
+      'message.forwardedOriginalCreatedAt',
+      'message.forwardedOriginalContent',
       'message.content',
       'message.createdAt',
       'message.updatedAt',
@@ -801,6 +973,12 @@ export class ChatService {
       'replyToMessage.createdAt',
       'replyToMessage.isRemoved',
       'replySender.username',
+      'forwardedFromMessage.id',
+      'forwardedFromMessage.senderId',
+      'forwardedFromMessage.content',
+      'forwardedFromMessage.createdAt',
+      'forwardedFromMessage.isRemoved',
+      'forwardedSender.username',
       'attachments.id',
       'attachments.messageId',
       'attachments.url',
@@ -850,12 +1028,24 @@ export class ChatService {
     }
 
     const replyIsRemoved = !!message.replyToMessage?.isRemoved;
+    const forwardedIsRemoved = !!message.forwardedFromMessage?.isRemoved;
+    const forwardedSenderName =
+      message.forwardedOriginalSenderName ||
+      message.forwardedFromMessage?.sender?.username ||
+      'Unknown user';
+    const forwardedContentPreview =
+      message.forwardedOriginalContent ||
+      (forwardedIsRemoved
+        ? 'This message was deleted'
+        : message.forwardedFromMessage?.content || '');
 
     return {
       id: message.id,
       chatRoomId: message.chatRoomId,
       senderId: message.senderId,
       replyToMessageId: message.replyToMessageId,
+      isForwarded: !!message.isForwarded,
+      forwardedFromMessageId: message.forwardedFromMessageId,
       content: message.content,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
@@ -872,6 +1062,18 @@ export class ChatService {
             : message.replyToMessage.content,
           createdAt: message.replyToMessage.createdAt,
           isRemoved: replyIsRemoved,
+        }
+        : null,
+      forwardedFrom: message.isForwarded
+        ? {
+          messageId: message.forwardedFromMessageId || message.forwardedFromMessage?.id || null,
+          senderId:
+            message.forwardedOriginalSenderId || message.forwardedFromMessage?.senderId || null,
+          senderName: forwardedSenderName,
+          createdAt:
+            message.forwardedOriginalCreatedAt || message.forwardedFromMessage?.createdAt || null,
+          contentPreview: forwardedContentPreview,
+          isRemoved: forwardedIsRemoved,
         }
         : null,
       attachments: (message.attachments || []).map((a) => ({
@@ -999,6 +1201,8 @@ export class ChatService {
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
       .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
@@ -1110,6 +1314,8 @@ export class ChatService {
       .leftJoin('message.sender', 'sender')
       .leftJoinAndSelect('message.replyToMessage', 'replyToMessage')
       .leftJoin('replyToMessage.sender', 'replySender')
+      .leftJoinAndSelect('message.forwardedFromMessage', 'forwardedFromMessage')
+      .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })

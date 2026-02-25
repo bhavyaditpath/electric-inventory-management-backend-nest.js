@@ -30,6 +30,7 @@ import { RemoveParticipantDto } from '../dto/remove-participant.dto';
 import { ToggleMessageReactionDto } from '../dto/toggle-message-reaction.dto';
 import { UpdateChatRoomNameDto } from '../dto/update-chat-room-name.dto';
 import { EditMessageDto } from '../dto/edit-message.dto';
+import { ForwardMessageDto } from '../dto/forward-message.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { ApiResponseUtil } from '../../shared/api-response';
 
@@ -160,6 +161,11 @@ export class ChatController {
     @Request() req,
   ) {
     return this.chatService.sendMessage(dto, req.user.id, undefined, files);
+  }
+
+  @Post('messages/forward')
+  async forwardMessage(@Body() dto: ForwardMessageDto, @Request() req) {
+    return this.chatService.forwardMessage(dto, req.user.id);
   }
 
   @Get('attachments/:attachmentId/download')

@@ -38,6 +38,34 @@ export class ChatMessage extends BaseEntityClass {
   @OneToMany(() => ChatMessage, (message) => message.replyToMessage)
   replies: ChatMessage[];
 
+  @Column({ type: 'boolean', default: false })
+  isForwarded: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  forwardedFromMessageId: number | null;
+
+  @ManyToOne(() => ChatMessage, (message) => message.forwardedMessages, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'forwardedFromMessageId' })
+  forwardedFromMessage: ChatMessage | null;
+
+  @OneToMany(() => ChatMessage, (message) => message.forwardedFromMessage)
+  forwardedMessages: ChatMessage[];
+
+  @Column({ type: 'int', nullable: true })
+  forwardedOriginalSenderId: number | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  forwardedOriginalSenderName: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  forwardedOriginalCreatedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  forwardedOriginalContent: string | null;
+
   @OneToMany(() => ChatAttachment, (attachment) => attachment.message)
   attachments: ChatAttachment[];
 

@@ -208,7 +208,7 @@ export class ChatController {
     @Body() dto: EditMessageDto,
     @Request() req,
   ) {
-    return this.chatService.editMessage(messageId, req.user.id, dto.content);
+    return this.chatService.editMessage(messageId, req.user.id, dto);
   }
 
   @Post('messages/:messageId/reactions')

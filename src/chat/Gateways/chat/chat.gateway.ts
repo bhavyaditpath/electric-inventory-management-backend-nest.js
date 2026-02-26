@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io';
 import { forwardRef, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../../chat.service';
+import { ChatLanguage, ChatMessageKind } from '../../enums/chat-message-format.enum';
 
 @WebSocketGateway({
   cors: {
@@ -120,7 +121,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: number; content: string },
+    @MessageBody()
+    data: {
+      roomId: number;
+      content: string;
+      kind?: ChatMessageKind;
+      language?: ChatLanguage;
+    },
   ) {
     try {
       const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
@@ -129,7 +136,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Save message to database
       const result = await this.chatService.sendMessage(
-        { chatRoomId: data.roomId, content: data.content },
+        {
+          chatRoomId: data.roomId,
+          content: data.content,
+          kind: data.kind,
+          language: data.language,
+        },
         userId,
         { emit: true }, // important
       );

@@ -3,6 +3,8 @@ export type ReplyPreviewPayload = {
   senderId: number;
   senderName: string;
   content: string;
+  kind: string;
+  language: string;
   createdAt: Date;
   isRemoved: boolean;
 };
@@ -13,6 +15,8 @@ export type ForwardPreviewPayload = {
   senderName: string;
   createdAt: Date | null;
   contentPreview: string;
+  kind: string;
+  language: string;
   isRemoved: boolean;
 };
 
@@ -22,6 +26,8 @@ export type MessageNotificationPayload = {
   senderId: number;
   senderName: string;
   content: string;
+  kind: string;
+  language: string;
   replyTo: ReplyPreviewPayload | null;
   isForwarded: boolean;
   forwardedFrom: ForwardPreviewPayload | null;

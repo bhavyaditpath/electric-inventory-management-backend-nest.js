@@ -13,11 +13,13 @@ import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ForwardMessageDto } from './dto/forward-message.dto';
+import { EditMessageDto } from './dto/edit-message.dto';
 import { RemoveParticipantDto } from './dto/remove-participant.dto';
 import { ApiResponse, ApiResponseUtil } from '../shared/api-response';
 import { UserRole } from '../shared/enums/role.enum';
 import { ChatGateway } from './Gateways/chat/chat.gateway';
 import { MessageNotificationPayload } from './types/message-notification.type';
+import { ChatLanguage, ChatMessageKind } from './enums/chat-message-format.enum';
 
 @Injectable()
 export class ChatService {
@@ -43,6 +45,36 @@ export class ChatService {
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
   ) { }
+
+  private resolveMessageKind(kind?: ChatMessageKind | null): ChatMessageKind {
+    return kind ?? ChatMessageKind.TEXT;
+  }
+
+  private resolveLanguage(kind: ChatMessageKind, language?: ChatLanguage | null): ChatLanguage {
+    if (kind === ChatMessageKind.CODE) {
+      return language ?? ChatLanguage.PLAINTEXT;
+    }
+    if (kind === ChatMessageKind.JSON) {
+      return ChatLanguage.JSON;
+    }
+    if (kind === ChatMessageKind.HTML) {
+      return ChatLanguage.HTML;
+    }
+    return ChatLanguage.PLAINTEXT;
+  }
+
+  private getKindContentValidationError(kind: ChatMessageKind, content: string): string | null {
+    if (kind !== ChatMessageKind.JSON || !content) {
+      return null;
+    }
+
+    try {
+      JSON.parse(content);
+      return null;
+    } catch {
+      return 'content must be valid JSON when kind is json';
+    }
+  }
 
   async createChatRoom(dto: CreateChatRoomDto, userId: number): Promise<ApiResponse> {
     const requester = await this.userRepository.findOne({ where: { id: userId } });
@@ -275,6 +307,22 @@ export class ChatService {
 
     const trimmedContent = (dto.content ?? '').trim();
     const hasFiles = !!files && files.length > 0;
+    let normalizedKind = this.resolveMessageKind(dto.kind);
+    let normalizedLanguage = this.resolveLanguage(normalizedKind, dto.language);
+
+    // Policy: attachment-only messages are always treated as plain text.
+    if (!trimmedContent) {
+      normalizedKind = ChatMessageKind.TEXT;
+      normalizedLanguage = ChatLanguage.PLAINTEXT;
+    }
+
+    const kindValidationError = this.getKindContentValidationError(
+      normalizedKind,
+      trimmedContent,
+    );
+    if (kindValidationError) {
+      return ApiResponseUtil.error(kindValidationError);
+    }
 
     // Teams-like behavior: text must not be whitespace-only unless files exist
     if (!trimmedContent && !hasFiles) {
@@ -285,6 +333,8 @@ export class ChatService {
       chatRoomId: dto.chatRoomId,
       senderId,
       content: trimmedContent, // normalized content
+      kind: normalizedKind,
+      language: normalizedLanguage,
       replyToMessageId,
     });
 
@@ -375,6 +425,10 @@ export class ChatService {
         'message.chatRoomId',
         'message.senderId',
         'message.content',
+        'message.kind',
+        'message.language',
+        'message.forwardedOriginalKind',
+        'message.forwardedOriginalLanguage',
         'message.createdAt',
         'sender.username',
         'attachments.id',
@@ -422,6 +476,15 @@ export class ChatService {
     const forwardedMessageMeta: Array<{ id: number; roomId: number }> = [];
     const sourceHasAttachments = (sourceMessage.attachments || []).length > 0;
     const sourceContent = (sourceMessage.content || '').trim();
+    const sourceKind = this.resolveMessageKind(
+      (sourceMessage.forwardedOriginalKind as ChatMessageKind | undefined) ??
+      (sourceMessage.kind as ChatMessageKind | undefined),
+    );
+    const sourceLanguage = this.resolveLanguage(
+      sourceKind,
+      (sourceMessage.forwardedOriginalLanguage as ChatLanguage | undefined) ??
+      (sourceMessage.language as ChatLanguage | undefined),
+    );
     if (!sourceContent && !sourceHasAttachments) {
       return ApiResponseUtil.error('Nothing to forward');
     }
@@ -433,16 +496,27 @@ export class ChatService {
         const roomRepo = manager.getRepository(ChatRoom);
 
         for (const targetRoomId of uniqueTargetRoomIds) {
+          const hasNote = !!normalizedNote;
+          const forwardedKind = hasNote ? ChatMessageKind.TEXT : sourceKind;
+          const forwardedLanguage = this.resolveLanguage(
+            forwardedKind,
+            hasNote ? ChatLanguage.PLAINTEXT : sourceLanguage,
+          );
+
           const forwardMessage = messageRepo.create({
             chatRoomId: targetRoomId,
             senderId: userId,
             content: normalizedNote,
+            kind: forwardedKind,
+            language: forwardedLanguage,
             isForwarded: true,
             forwardedFromMessageId: sourceMessage.id,
             forwardedOriginalSenderId: sourceMessage.senderId,
             forwardedOriginalSenderName: sourceMessage.sender?.username || null,
             forwardedOriginalCreatedAt: sourceMessage.createdAt,
             forwardedOriginalContent: sourceContent || null,
+            forwardedOriginalKind: sourceKind,
+            forwardedOriginalLanguage: sourceLanguage,
           });
 
           const savedForwardMessage = await messageRepo.save(forwardMessage);
@@ -951,6 +1025,8 @@ export class ChatService {
         senderId,
         senderName,
         content: mappedMessage.content,
+        kind: mappedMessage.kind,
+        language: mappedMessage.language,
         replyTo: mappedMessage.replyTo,
         isForwarded: mappedMessage.isForwarded,
         forwardedFrom: mappedMessage.forwardedFrom,
@@ -986,19 +1062,27 @@ export class ChatService {
       'message.forwardedOriginalSenderName',
       'message.forwardedOriginalCreatedAt',
       'message.forwardedOriginalContent',
+      'message.forwardedOriginalKind',
+      'message.forwardedOriginalLanguage',
       'message.content',
+      'message.kind',
+      'message.language',
       'message.createdAt',
       'message.updatedAt',
       'sender.username',
       'replyToMessage.id',
       'replyToMessage.senderId',
       'replyToMessage.content',
+      'replyToMessage.kind',
+      'replyToMessage.language',
       'replyToMessage.createdAt',
       'replyToMessage.isRemoved',
       'replySender.username',
       'forwardedFromMessage.id',
       'forwardedFromMessage.senderId',
       'forwardedFromMessage.content',
+      'forwardedFromMessage.kind',
+      'forwardedFromMessage.language',
       'forwardedFromMessage.createdAt',
       'forwardedFromMessage.isRemoved',
       'forwardedSender.username',
@@ -1051,7 +1135,28 @@ export class ChatService {
     }
 
     const replyIsRemoved = !!message.replyToMessage?.isRemoved;
+    const replyKind = this.resolveMessageKind(
+      message.replyToMessage?.kind as ChatMessageKind | undefined,
+    );
+    const replyLanguage = this.resolveLanguage(
+      replyKind,
+      message.replyToMessage?.language as ChatLanguage | undefined,
+    );
     const forwardedIsRemoved = !!message.forwardedFromMessage?.isRemoved;
+    const messageKind = this.resolveMessageKind(message.kind as ChatMessageKind | undefined);
+    const messageLanguage = this.resolveLanguage(
+      messageKind,
+      message.language as ChatLanguage | undefined,
+    );
+    const forwardedKind = this.resolveMessageKind(
+      (message.forwardedOriginalKind as ChatMessageKind | null) ||
+      (message.forwardedFromMessage?.kind as ChatMessageKind | undefined),
+    );
+    const forwardedLanguage = this.resolveLanguage(
+      forwardedKind,
+      (message.forwardedOriginalLanguage as ChatLanguage | null) ||
+      (message.forwardedFromMessage?.language as ChatLanguage | undefined),
+    );
     const forwardedSenderName =
       message.forwardedOriginalSenderName ||
       message.forwardedFromMessage?.sender?.username ||
@@ -1070,6 +1175,8 @@ export class ChatService {
       isForwarded: !!message.isForwarded,
       forwardedFromMessageId: message.forwardedFromMessageId,
       content: message.content,
+      kind: messageKind,
+      language: messageLanguage,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       isRemoved: message.isRemoved,
@@ -1083,6 +1190,8 @@ export class ChatService {
           content: replyIsRemoved
             ? 'This message was deleted'
             : message.replyToMessage.content,
+          kind: replyKind,
+          language: replyLanguage,
           createdAt: message.replyToMessage.createdAt,
           isRemoved: replyIsRemoved,
         }
@@ -1096,6 +1205,8 @@ export class ChatService {
           createdAt:
             message.forwardedOriginalCreatedAt || message.forwardedFromMessage?.createdAt || null,
           contentPreview: forwardedContentPreview,
+          kind: forwardedKind,
+          language: forwardedLanguage,
           isRemoved: forwardedIsRemoved,
         }
         : null,
@@ -1287,10 +1398,10 @@ export class ChatService {
     return ApiResponseUtil.success(null, 'Message deleted');
   }
 
-  async editMessage(messageId: number, userId: number, content: string): Promise<ApiResponse> {
+  async editMessage(messageId: number, userId: number, dto: EditMessageDto): Promise<ApiResponse> {
     const message = await this.chatMessageRepository.findOne({
       where: { id: messageId, isRemoved: false },
-      select: { id: true, senderId: true, chatRoomId: true, content: true },
+      select: { id: true, senderId: true, chatRoomId: true, content: true, kind: true, language: true },
     });
     if (!message) {
       return ApiResponseUtil.error('Message not found');
@@ -1305,17 +1416,38 @@ export class ChatService {
       return ApiResponseUtil.error('Only message sender can edit message');
     }
 
-    const normalizedContent = (content || '').trim();
+    const normalizedContentInput =
+      dto.content !== undefined ? (dto.content || '').trim() : undefined;
+    const normalizedContent = normalizedContentInput ?? message.content;
+
     if (!normalizedContent) {
       return ApiResponseUtil.error('Message content is required');
     }
 
-    if (message.content === normalizedContent) {
+    const normalizedKind = this.resolveMessageKind(
+      dto.kind ?? (message.kind as ChatMessageKind | undefined),
+    );
+    const normalizedLanguage = this.resolveLanguage(
+      normalizedKind,
+      dto.language ?? (message.language as ChatLanguage | undefined),
+    );
+    const kindValidationError = this.getKindContentValidationError(normalizedKind, normalizedContent);
+    if (kindValidationError) {
+      return ApiResponseUtil.error(kindValidationError);
+    }
+
+    if (
+      message.content === normalizedContent &&
+      (message.kind as ChatMessageKind | undefined) === normalizedKind &&
+      (message.language as ChatLanguage | undefined) === normalizedLanguage
+    ) {
       return ApiResponseUtil.success(null, 'No changes detected');
     }
 
     await this.chatMessageRepository.update(messageId, {
       content: normalizedContent,
+      kind: normalizedKind,
+      language: normalizedLanguage,
       updatedBy: userId,
       updatedAt: new Date(),
     });

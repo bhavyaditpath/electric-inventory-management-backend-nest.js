@@ -5,6 +5,7 @@ import { BaseEntityClass } from '../../shared/base.entity';
 import { ChatAttachment } from './chat-attachment.entity';
 import { ChatMessageDeletion } from './chat-message-deletion.entity';
 import { ChatMessageReaction } from './chat-message-reaction.entity';
+import { ChatLanguage, ChatMessageKind } from '../enums/chat-message-format.enum';
 
 @Entity('chat_messages')
 export class ChatMessage extends BaseEntityClass {
@@ -24,6 +25,12 @@ export class ChatMessage extends BaseEntityClass {
 
   @Column({ type: 'text' })
   content: string;
+
+  @Column({ type: 'varchar', default: ChatMessageKind.TEXT })
+  kind: ChatMessageKind;
+
+  @Column({ type: 'varchar', default: ChatLanguage.PLAINTEXT })
+  language: ChatLanguage;
 
   @Column({ type: 'int', nullable: true })
   replyToMessageId: number | null;
@@ -65,6 +72,12 @@ export class ChatMessage extends BaseEntityClass {
 
   @Column({ type: 'text', nullable: true })
   forwardedOriginalContent: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  forwardedOriginalKind: ChatMessageKind | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  forwardedOriginalLanguage: ChatLanguage | null;
 
   @OneToMany(() => ChatAttachment, (attachment) => attachment.message)
   attachments: ChatAttachment[];

@@ -21,6 +21,8 @@ import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class ReportsService {
+  private readonly reportsCronEnabled = process.env.REPORTS_CRON_ENABLED === 'true';
+
   constructor(
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
@@ -229,7 +231,7 @@ export class ReportsService {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
-    const branchSuffix = user ? `_branch_${user.branchId}` : '_all_branches';
+    const branchSuffix = user ? `_branch_${user.branch.name}` : '_all_branches';
     return `${reportType}_${dateStr}_${timeStr}${branchSuffix}.xlsx`;
   }
 
@@ -479,18 +481,27 @@ export class ReportsService {
 
   @Cron('59 59 23 * * *')
   async handleDailyReports() {
+    if (!this.reportsCronEnabled) {
+      return;
+    }
     console.log('Generating daily reports...');
     await this.processBranchWiseReportType(ReportType.DAILY);
   }
 
   @Cron('59 59 23 * * 0')
   async handleWeeklyReports() {
+    if (!this.reportsCronEnabled) {
+      return;
+    }
     console.log('Generating weekly reports...');
     await this.processBranchWiseReportType(ReportType.WEEKLY);
   }
 
   @Cron('59 59 23 * * *')
   async handleMonthlyReports() {
+    if (!this.reportsCronEnabled) {
+      return;
+    }
     const now = new Date();
     if (!this.isMonthEnd(now)) {
       return;
@@ -502,6 +513,9 @@ export class ReportsService {
 
   @Cron('59 59 23 * * *')
   async handleHalfYearlyReports() {
+    if (!this.reportsCronEnabled) {
+      return;
+    }
     const now = new Date();
     if (!this.isHalfYearEnd(now)) {
       return;
@@ -513,6 +527,9 @@ export class ReportsService {
 
   @Cron('59 59 23 * * *')
   async handleYearlyReports() {
+    if (!this.reportsCronEnabled) {
+      return;
+    }
     const now = new Date();
     if (!this.isYearEnd(now)) {
       return;
@@ -536,6 +553,10 @@ export class ReportsService {
 
   private isYearEnd(date: Date): boolean {
     return date.getMonth() === 11 && date.getDate() === 31;
+  }
+
+  async runReportNow(reportType: ReportType): Promise<void> {
+    await this.processBranchWiseReportType(reportType);
   }
 
   private async processBranchWiseReportType(reportType: ReportType): Promise<void> {

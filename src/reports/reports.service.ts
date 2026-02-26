@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ExcelJS from 'exceljs';
@@ -21,8 +20,6 @@ import { NotificationType } from '../shared/enums/notification-type.enum';
 
 @Injectable()
 export class ReportsService {
-  private readonly reportsCronEnabled = process.env.REPORTS_CRON_ENABLED === 'true';
-
   constructor(
     @InjectRepository(Purchase)
     private purchaseRepository: Repository<Purchase>,
@@ -477,82 +474,6 @@ export class ReportsService {
     }
 
     return 'Scheduled reports generated successfully';
-  }
-
-  @Cron('59 59 23 * * *')
-  async handleDailyReports() {
-    if (!this.reportsCronEnabled) {
-      return;
-    }
-    console.log('Generating daily reports...');
-    await this.processBranchWiseReportType(ReportType.DAILY);
-  }
-
-  @Cron('59 59 23 * * 0')
-  async handleWeeklyReports() {
-    if (!this.reportsCronEnabled) {
-      return;
-    }
-    console.log('Generating weekly reports...');
-    await this.processBranchWiseReportType(ReportType.WEEKLY);
-  }
-
-  @Cron('59 59 23 * * *')
-  async handleMonthlyReports() {
-    if (!this.reportsCronEnabled) {
-      return;
-    }
-    const now = new Date();
-    if (!this.isMonthEnd(now)) {
-      return;
-    }
-
-    console.log('Generating monthly reports (month-end)...');
-    await this.processBranchWiseReportType(ReportType.MONTHLY);
-  }
-
-  @Cron('59 59 23 * * *')
-  async handleHalfYearlyReports() {
-    if (!this.reportsCronEnabled) {
-      return;
-    }
-    const now = new Date();
-    if (!this.isHalfYearEnd(now)) {
-      return;
-    }
-
-    console.log('Generating half-yearly reports (period-end)...');
-    await this.processBranchWiseReportType(ReportType.HALF_YEARLY);
-  }
-
-  @Cron('59 59 23 * * *')
-  async handleYearlyReports() {
-    if (!this.reportsCronEnabled) {
-      return;
-    }
-    const now = new Date();
-    if (!this.isYearEnd(now)) {
-      return;
-    }
-
-    console.log('Generating yearly reports (year-end)...');
-    await this.processBranchWiseReportType(ReportType.YEARLY);
-  }
-
-  private isMonthEnd(date: Date): boolean {
-    const tomorrow = new Date(date);
-    tomorrow.setDate(date.getDate() + 1);
-    return tomorrow.getDate() === 1;
-  }
-
-  private isHalfYearEnd(date: Date): boolean {
-    const month = date.getMonth(); // 0-indexed
-    const day = date.getDate();
-    return (month === 5 && day === 30) || (month === 11 && day === 31);
-  }
-
-  private isYearEnd(date: Date): boolean {
-    return date.getMonth() === 11 && date.getDate() === 31;
   }
 
   async runReportNow(reportType: ReportType): Promise<void> {

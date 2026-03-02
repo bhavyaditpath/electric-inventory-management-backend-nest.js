@@ -5,6 +5,7 @@ import { BaseEntityClass } from '../../shared/base.entity';
 import { ChatAttachment } from './chat-attachment.entity';
 import { ChatMessageDeletion } from './chat-message-deletion.entity';
 import { ChatMessageReaction } from './chat-message-reaction.entity';
+import { ChatMessageReceipt } from './chat-message-receipt.entity';
 import { ChatLanguage, ChatMessageKind } from '../enums/chat-message-format.enum';
 
 @Entity('chat_messages')
@@ -87,6 +88,9 @@ export class ChatMessage extends BaseEntityClass {
 
   @OneToMany(() => ChatMessageReaction, (reaction) => reaction.message)
   reactions: ChatMessageReaction[];
+
+  @OneToMany(() => ChatMessageReceipt, (receipt) => receipt.message)
+  receipts: ChatMessageReceipt[];
 
   @Column({ type: 'boolean', default: false })
   isRead: boolean;

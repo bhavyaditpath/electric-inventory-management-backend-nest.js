@@ -8,6 +8,7 @@ import { User } from '../user/entities/user.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { ChatMessageReaction } from './entities/chat-message-reaction.entity';
+import { ChatMessageReceipt } from './entities/chat-message-receipt.entity';
 import { ChatService } from './chat.service';
 import { ChatController } from './Controllers/chat.controller';
 import { AuthModule } from '../auth/auth.module';
@@ -26,6 +27,7 @@ import { CallRecordingController } from './Controllers/call-recording/call-recor
       ChatAttachment,
       ChatMessageDeletion,
       ChatMessageReaction,
+      ChatMessageReceipt,
       ChatRoomParticipant,
       ChatRoomPin,
       User,

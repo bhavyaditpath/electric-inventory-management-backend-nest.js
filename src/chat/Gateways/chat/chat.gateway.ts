@@ -210,6 +210,75 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'markedAsRead', data: { roomId: data.roomId } };
   }
 
+  @SubscribeMessage('markMessageDelivered')
+  async handleMarkMessageDelivered(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: number },
+  ) {
+    try {
+      const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      await this.chatService.markMessageDelivered(data.messageId, userId);
+
+      return { event: 'messageMarkedDelivered', data: { messageId: data.messageId } };
+    } catch (error) {
+      console.error('Mark message delivered error:', error);
+      return { event: 'error', data: 'Failed to mark message as delivered' };
+    }
+  }
+
+  @SubscribeMessage('markMessageRead')
+  async handleMarkMessageRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: number },
+  ) {
+    try {
+      const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      await this.chatService.markMessageRead(data.messageId, userId);
+
+      return { event: 'messageMarkedRead', data: { messageId: data.messageId } };
+    } catch (error) {
+      console.error('Mark message read error:', error);
+      return { event: 'error', data: 'Failed to mark message as read' };
+    }
+  }
+
+  @SubscribeMessage('markRoomMessagesDelivered')
+  async handleMarkRoomMessagesDelivered(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomId: number },
+  ) {
+    try {
+      const token = client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      await this.chatService.markRoomMessagesDelivered(data.roomId, userId);
+
+      return { event: 'roomMessagesMarkedDelivered', data: { roomId: data.roomId } };
+    } catch (error) {
+      console.error('Mark room messages delivered error:', error);
+      return { event: 'error', data: 'Failed to mark room messages as delivered' };
+    }
+  }
+
   // Helper method to send notification to specific user
   sendToUser(userId: number, event: string, data: any) {
     this.server.to(`user_${userId}`).emit(event, data);

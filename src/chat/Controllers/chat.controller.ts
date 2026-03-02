@@ -237,6 +237,38 @@ export class ChatController {
     return this.chatService.markMessagesAsRead(roomId, req.user.id);
   }
 
+  @Post('messages/:messageId/delivered')
+  async markMessageDelivered(
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Request() req,
+  ) {
+    return this.chatService.markMessageDelivered(messageId, req.user.id);
+  }
+
+  @Post('messages/:messageId/read')
+  async markMessageRead(
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Request() req,
+  ) {
+    return this.chatService.markMessageRead(messageId, req.user.id);
+  }
+
+  @Post('rooms/:roomId/delivered')
+  async markRoomMessagesDelivered(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Request() req,
+  ) {
+    return this.chatService.markRoomMessagesDelivered(roomId, req.user.id);
+  }
+
+  @Get('messages/:messageId/delivery-status')
+  async getMessageDeliveryStatus(
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Request() req,
+  ) {
+    return this.chatService.getMessageDeliveryStatus(messageId, req.user.id);
+  }
+
   @Delete('rooms/:roomId')
   async deleteRoom(@Param('roomId', ParseIntPipe) roomId: number, @Request() req) {
     return this.chatService.deleteChatRoom(roomId, req.user.id);

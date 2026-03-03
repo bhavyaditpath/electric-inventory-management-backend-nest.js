@@ -576,15 +576,54 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
+    const now = new Date();
+
     await this.chatMessageRepository
       .createQueryBuilder()
       .update(ChatMessage)
-      .set({ isRead: true, readAt: new Date() })
+      .set({ isRead: true, readAt: now })
       .where('chatRoomId = :roomId', { roomId })
       .andWhere('senderId != :userId', { userId })
       .andWhere('isRead = :isRead', { isRead: false })
       .andWhere('isRemoved = :isRemoved', { isRemoved: false })
       .execute();
+
+    const roomMessageRows = await this.chatMessageRepository
+      .createQueryBuilder('message')
+      .select('message.id', 'id')
+      .where('message.chatRoomId = :roomId', { roomId })
+      .andWhere('message.senderId != :userId', { userId })
+      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+      .getRawMany<{ id: number }>();
+
+    const messageIds = roomMessageRows.map((row) => row.id);
+
+    if (messageIds.length > 0) {
+      await this.chatMessageReceiptRepository
+        .createQueryBuilder()
+        .update(ChatMessageReceipt)
+        .set({
+          status: MessageReceiptStatus.READ,
+          deliveredAt: now,
+          readAt: now,
+        })
+        .where('userId = :userId', { userId })
+        .andWhere('status = :status', { status: MessageReceiptStatus.SENT })
+        .andWhere('messageId IN (:...messageIds)', { messageIds })
+        .execute();
+
+      await this.chatMessageReceiptRepository
+        .createQueryBuilder()
+        .update(ChatMessageReceipt)
+        .set({
+          status: MessageReceiptStatus.READ,
+          readAt: now,
+        })
+        .where('userId = :userId', { userId })
+        .andWhere('status = :status', { status: MessageReceiptStatus.DELIVERED })
+        .andWhere('messageId IN (:...messageIds)', { messageIds })
+        .execute();
+    }
 
     return ApiResponseUtil.success(null, 'Messages marked as read');
   }
@@ -1666,6 +1705,14 @@ export class ChatService {
 
     const now = new Date();
 
+    await this.chatMessageRepository.update(
+      { id: messageId, isRemoved: false },
+      {
+        isRead: true,
+        readAt: now,
+      },
+    );
+
     if (!receipt) {
       // Create receipt if it doesn't exist
       const newReceipt = this.chatMessageReceiptRepository.create({
@@ -1682,7 +1729,7 @@ export class ChatService {
         { id: receipt.id },
         {
           status: MessageReceiptStatus.READ,
-          deliveredAt: receipt.deliveredAt || now,
+          deliveredAt: receipt.deliveredAt,
           readAt: now,
         },
       );

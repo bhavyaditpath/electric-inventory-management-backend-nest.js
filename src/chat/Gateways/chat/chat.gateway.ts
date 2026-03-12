@@ -99,6 +99,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return { event: 'error', data: 'Not a participant of this room' };
       }
 
+      await this.chatService.markMessagesAsDelivered(data.roomId, userId);
+
       client.join(`room_${data.roomId}`);
       console.log(`Client joined room ${data.roomId}`);
       return { event: 'joinedRoom', data: { roomId: data.roomId } };

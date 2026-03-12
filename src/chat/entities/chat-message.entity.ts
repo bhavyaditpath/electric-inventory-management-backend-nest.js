@@ -91,6 +91,12 @@ export class ChatMessage extends BaseEntityClass {
   @Column({ type: 'boolean', default: false })
   isRead: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  isDelivered: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deliveredAt: Date | null;
+
   @Column({ type: 'timestamp', nullable: true })
   readAt: Date | null;
 }

@@ -378,6 +378,8 @@ export class ChatService {
       return ApiResponseUtil.error('Access denied');
     }
 
+    await this.markMessagesAsDelivered(roomId, userId);
+
     const [messages, total] = await this.createMessageDetailsQuery({
       includeIsRemoved: true,
       currentUserId: userId,
@@ -571,15 +573,28 @@ export class ChatService {
 
     const now = new Date();
 
-    await this.chatMessageRepository
+    const readUpdateResult = await this.chatMessageRepository
       .createQueryBuilder()
       .update(ChatMessage)
-      .set({ isRead: true, readAt: now })
+      .set({
+        isDelivered: true,
+        deliveredAt: () => `COALESCE("deliveredAt", NOW())`,
+        isRead: true,
+        readAt: now,
+      })
       .where('chatRoomId = :roomId', { roomId })
       .andWhere('senderId != :userId', { userId })
       .andWhere('isRead = :isRead', { isRead: false })
       .andWhere('isRemoved = :isRemoved', { isRemoved: false })
       .execute();
+
+    if ((readUpdateResult.affected || 0) > 0) {
+      this.chatGateway.sendToRoom(roomId, 'messagesRead', {
+        roomId,
+        userId,
+        readAt: now.toISOString(),
+      });
+    }
 
     return ApiResponseUtil.success(null, 'Messages marked as read');
   }
@@ -1051,6 +1066,27 @@ export class ChatService {
       .getOne();
   }
 
+  async markMessagesAsDelivered(roomId: number, userId: number): Promise<void> {
+    const now = new Date();
+    const deliveryUpdateResult = await this.chatMessageRepository
+      .createQueryBuilder()
+      .update(ChatMessage)
+      .set({ isDelivered: true, deliveredAt: now })
+      .where('chatRoomId = :roomId', { roomId })
+      .andWhere('senderId != :userId', { userId })
+      .andWhere('isDelivered = :isDelivered', { isDelivered: false })
+      .andWhere('isRemoved = :isRemoved', { isRemoved: false })
+      .execute();
+
+    if ((deliveryUpdateResult.affected || 0) > 0) {
+      this.chatGateway.sendToRoom(roomId, 'messagesDelivered', {
+        roomId,
+        userId,
+        deliveredAt: now.toISOString(),
+      });
+    }
+  }
+
   private getMessageSelectFields(includeIsRemoved: boolean): string[] {
     const fields = [
       'message.id',
@@ -1068,6 +1104,10 @@ export class ChatService {
       'message.content',
       'message.kind',
       'message.language',
+      'message.isDelivered',
+      'message.deliveredAt',
+      'message.isRead',
+      'message.readAt',
       'message.createdAt',
       'message.updatedAt',
       'sender.username',
@@ -1167,6 +1207,11 @@ export class ChatService {
       (forwardedIsRemoved
         ? 'This message was deleted'
         : message.forwardedFromMessage?.content || '');
+    const messageStatus = message.isRead
+      ? 'read'
+      : message.isDelivered
+        ? 'delivered'
+        : 'sent';
 
     return {
       id: message.id,
@@ -1178,6 +1223,11 @@ export class ChatService {
       content: message.content,
       kind: messageKind,
       language: messageLanguage,
+      messageStatus,
+      isDelivered: !!message.isDelivered,
+      deliveredAt: message.deliveredAt || null,
+      isRead: !!message.isRead,
+      readAt: message.readAt || null,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       isRemoved: message.isRemoved,

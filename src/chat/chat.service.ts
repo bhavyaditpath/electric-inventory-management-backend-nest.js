@@ -1108,6 +1108,7 @@ export class ChatService {
       'message.deliveredAt',
       'message.isRead',
       'message.readAt',
+      'message.editedAt',
       'message.createdAt',
       'message.updatedAt',
       'sender.username',
@@ -1207,6 +1208,7 @@ export class ChatService {
       (forwardedIsRemoved
         ? 'This message was deleted'
         : message.forwardedFromMessage?.content || '');
+    const isEdited = !!message.editedAt;
     const messageStatus = message.isRead
       ? 'read'
       : message.isDelivered
@@ -1223,6 +1225,8 @@ export class ChatService {
       content: message.content,
       kind: messageKind,
       language: messageLanguage,
+      isEdited,
+      editedAt: message.editedAt || null,
       messageStatus,
       isDelivered: !!message.isDelivered,
       deliveredAt: message.deliveredAt || null,
@@ -1500,7 +1504,7 @@ export class ChatService {
       kind: normalizedKind,
       language: normalizedLanguage,
       updatedBy: userId,
-      updatedAt: new Date(),
+      editedAt: new Date(),
     });
 
     const mappedMessage = await this.getMappedMessageById(messageId, userId, {

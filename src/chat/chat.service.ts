@@ -8,7 +8,6 @@ import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { ChatMessageReaction } from './entities/chat-message-reaction.entity';
-import { ChatMessageReceipt } from './entities/chat-message-receipt.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
@@ -21,7 +20,6 @@ import { UserRole } from '../shared/enums/role.enum';
 import { ChatGateway } from './Gateways/chat/chat.gateway';
 import { MessageNotificationPayload } from './types/message-notification.type';
 import { ChatLanguage, ChatMessageKind } from './enums/chat-message-format.enum';
-import { MessageReceiptStatus } from './enums/chat-message-receipt-status';
 @Injectable()
 export class ChatService {
   private static readonly MAX_FORWARD_TARGETS = 20;
@@ -39,8 +37,6 @@ export class ChatService {
     private chatMessageDeletionRepository: Repository<ChatMessageDeletion>,
     @InjectRepository(ChatMessageReaction)
     private chatMessageReactionRepository: Repository<ChatMessageReaction>,
-    @InjectRepository(ChatMessageReceipt)
-    private chatMessageReceiptRepository: Repository<ChatMessageReceipt>,
     @InjectRepository(ChatRoomParticipant)
     private chatRoomParticipantRepository: Repository<ChatRoomParticipant>,
     @InjectRepository(User)
@@ -356,9 +352,6 @@ export class ChatService {
       await this.chatAttachmentRepository.save(attachmentEntities);
     }
 
-    // Create delivery receipts for all participants except sender
-    await this.createReceiptsForMessage(savedMessage.id, dto.chatRoomId, senderId);
-
     await this.chatRoomRepository.update(dto.chatRoomId, { updatedAt: new Date() });
 
     const mappedMessage = await this.getMappedMessageById(savedMessage.id, senderId, {
@@ -587,43 +580,6 @@ export class ChatService {
       .andWhere('isRead = :isRead', { isRead: false })
       .andWhere('isRemoved = :isRemoved', { isRemoved: false })
       .execute();
-
-    const roomMessageRows = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .select('message.id', 'id')
-      .where('message.chatRoomId = :roomId', { roomId })
-      .andWhere('message.senderId != :userId', { userId })
-      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
-      .getRawMany<{ id: number }>();
-
-    const messageIds = roomMessageRows.map((row) => row.id);
-
-    if (messageIds.length > 0) {
-      await this.chatMessageReceiptRepository
-        .createQueryBuilder()
-        .update(ChatMessageReceipt)
-        .set({
-          status: MessageReceiptStatus.READ,
-          deliveredAt: now,
-          readAt: now,
-        })
-        .where('userId = :userId', { userId })
-        .andWhere('status = :status', { status: MessageReceiptStatus.SENT })
-        .andWhere('messageId IN (:...messageIds)', { messageIds })
-        .execute();
-
-      await this.chatMessageReceiptRepository
-        .createQueryBuilder()
-        .update(ChatMessageReceipt)
-        .set({
-          status: MessageReceiptStatus.READ,
-          readAt: now,
-        })
-        .where('userId = :userId', { userId })
-        .andWhere('status = :status', { status: MessageReceiptStatus.DELIVERED })
-        .andWhere('messageId IN (:...messageIds)', { messageIds })
-        .execute();
-    }
 
     return ApiResponseUtil.success(null, 'Messages marked as read');
   }
@@ -1012,8 +968,6 @@ export class ChatService {
       .leftJoin('forwardedFromMessage.sender', 'forwardedSender')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
-      .leftJoinAndSelect('message.receipts', 'receipts')
-      .leftJoin('receipts.user', 'receiptUser')
       .select(this.getMessageSelectFields(includeIsRemoved));
 
     if (excludeDeletedForUser && typeof currentUserId === 'number') {
@@ -1142,13 +1096,6 @@ export class ChatService {
       'reactions.id',
       'reactions.userId',
       'reactions.emoji',
-      'receipts.id',
-      'receipts.userId',
-      'receipts.status',
-      'receipts.deliveredAt',
-      'receipts.readAt',
-      'receiptUser.id',
-      'receiptUser.username',
     ];
 
     if (includeIsRemoved) {
@@ -1276,13 +1223,6 @@ export class ChatService {
         count: userIds.size,
         reactedByMe: currentUserId ? userIds.has(currentUserId) : false,
         userIds: Array.from(userIds),
-      })),
-      deliveryStatus: (message.receipts || []).map((receipt) => ({
-        userId: receipt.userId,
-        username: receipt.user?.username || 'Unknown',
-        status: receipt.status,
-        deliveredAt: receipt.deliveredAt,
-        readAt: receipt.readAt,
       })),
       sender: message.sender
         ? {
@@ -1596,245 +1536,5 @@ export class ChatService {
       select: { id: true },
     });
     return !!pin;
-  }
-  // ==================== MESSAGE RECEIPT METHODS ====================
-  private async createReceiptsForMessage(
-    messageId: number,
-    chatRoomId: number,
-    senderId: number,
-  ): Promise<void> {
-    const participants = await this.chatRoomParticipantRepository.find({
-      where: { chatRoomId, isRemoved: false },
-      select: { userId: true },
-    });
-
-    const recipientIds = participants
-      .map((p) => p.userId)
-      .filter((userId) => userId !== senderId);
-
-    if (recipientIds.length === 0) return;
-
-    const receipts = recipientIds.map((userId) =>
-      this.chatMessageReceiptRepository.create({
-        messageId,
-        userId,
-        status: MessageReceiptStatus.SENT,
-        deliveredAt: null,
-        readAt: null,
-      }),
-    );
-
-    await this.chatMessageReceiptRepository.save(receipts);
-  }
-
-  async markMessageDelivered(messageId: number, userId: number): Promise<ApiResponse> {
-    const message = await this.chatMessageRepository.findOne({
-      where: { id: messageId, isRemoved: false },
-      select: { id: true, chatRoomId: true, senderId: true },
-    });
-
-    if (!message) {
-      return ApiResponseUtil.error('Message not found');
-    }
-
-    if (message.senderId === userId) {
-      return ApiResponseUtil.success(null, 'Cannot mark own message as delivered');
-    }
-
-    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
-    if (!isParticipant) {
-      return ApiResponseUtil.error('Access denied');
-    }
-
-    const receipt = await this.chatMessageReceiptRepository.findOne({
-      where: { messageId, userId },
-    });
-
-    if (!receipt) {
-      // Create receipt if it doesn't exist
-      const newReceipt = this.chatMessageReceiptRepository.create({
-        messageId,
-        userId,
-        status: MessageReceiptStatus.DELIVERED,
-        deliveredAt: new Date(),
-        readAt: null,
-      });
-      await this.chatMessageReceiptRepository.save(newReceipt);
-    } else if (receipt.status === MessageReceiptStatus.SENT) {
-      // Update only if current status is SENT
-      await this.chatMessageReceiptRepository.update(
-        { id: receipt.id },
-        {
-          status: MessageReceiptStatus.DELIVERED,
-          deliveredAt: new Date(),
-        },
-      );
-    }
-
-    this.chatGateway.sendToUser(message.senderId, 'messageDelivered', {
-      messageId,
-      userId,
-      deliveredAt: new Date().toISOString(),
-    });
-
-    return ApiResponseUtil.success(null, 'Message marked as delivered');
-  }
-
-  async markMessageRead(messageId: number, userId: number): Promise<ApiResponse> {
-    const message = await this.chatMessageRepository.findOne({
-      where: { id: messageId, isRemoved: false },
-      select: { id: true, chatRoomId: true, senderId: true },
-    });
-
-    if (!message) {
-      return ApiResponseUtil.error('Message not found');
-    }
-
-    if (message.senderId === userId) {
-      return ApiResponseUtil.success(null, 'Cannot mark own message as read');
-    }
-
-    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
-    if (!isParticipant) {
-      return ApiResponseUtil.error('Access denied');
-    }
-
-    const receipt = await this.chatMessageReceiptRepository.findOne({
-      where: { messageId, userId },
-    });
-
-    const now = new Date();
-
-    await this.chatMessageRepository.update(
-      { id: messageId, isRemoved: false },
-      {
-        isRead: true,
-        readAt: now,
-      },
-    );
-
-    if (!receipt) {
-      // Create receipt if it doesn't exist
-      const newReceipt = this.chatMessageReceiptRepository.create({
-        messageId,
-        userId,
-        status: MessageReceiptStatus.READ,
-        deliveredAt: now,
-        readAt: now,
-      });
-      await this.chatMessageReceiptRepository.save(newReceipt);
-    } else if (receipt.status !== MessageReceiptStatus.READ) {
-      // Update to READ status
-      await this.chatMessageReceiptRepository.update(
-        { id: receipt.id },
-        {
-          status: MessageReceiptStatus.READ,
-          deliveredAt: receipt.deliveredAt,
-          readAt: now,
-        },
-      );
-    }
-
-    this.chatGateway.sendToUser(message.senderId, 'messageRead', {
-      messageId,
-      userId,
-      readAt: now.toISOString(),
-    });
-
-    return ApiResponseUtil.success(null, 'Message marked as read');
-  }
-
-  async markRoomMessagesDelivered(roomId: number, userId: number): Promise<ApiResponse> {
-    const isParticipant = await this.isUserInRoom(roomId, userId);
-    if (!isParticipant) {
-      return ApiResponseUtil.error('Access denied');
-    }
-
-    const receipts = await this.chatMessageReceiptRepository
-      .createQueryBuilder('receipt')
-      .innerJoin('receipt.message', 'message')
-      .where('message.chatRoomId = :roomId', { roomId })
-      .andWhere('receipt.userId = :userId', { userId })
-      .andWhere('receipt.status = :status', { status: MessageReceiptStatus.SENT })
-      .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
-      .select(['receipt.id', 'receipt.messageId'])
-      .getMany();
-
-    if (receipts.length === 0) {
-      return ApiResponseUtil.success(null, 'No messages to mark as delivered');
-    }
-
-    const now = new Date();
-    await this.chatMessageReceiptRepository.update(
-      { id: In(receipts.map((r) => r.id)) },
-      {
-        status: MessageReceiptStatus.DELIVERED,
-        deliveredAt: now,
-      },
-    );
-
-    const messages = await this.chatMessageRepository.find({
-      where: { id: In(receipts.map((r) => r.messageId)) },
-      select: { id: true, senderId: true },
-    });
-
-    const uniqueSenderIds = Array.from(new Set(messages.map((m) => m.senderId)));
-
-    for (const senderId of uniqueSenderIds) {
-      if (senderId !== userId) {
-        this.chatGateway.sendToUser(senderId, 'roomMessagesDelivered', {
-          roomId,
-          userId,
-          messageIds: receipts.map((r) => r.messageId),
-          deliveredAt: now.toISOString(),
-        });
-      }
-    }
-
-    return ApiResponseUtil.success(
-      { count: receipts.length },
-      `${receipts.length} message(s) marked as delivered`,
-    );
-  }
-
-  async getMessageDeliveryStatus(messageId: number, userId: number): Promise<ApiResponse> {
-    const message = await this.chatMessageRepository.findOne({
-      where: { id: messageId, isRemoved: false },
-      select: { id: true, chatRoomId: true, senderId: true },
-    });
-
-    if (!message) {
-      return ApiResponseUtil.error('Message not found');
-    }
-
-    const isParticipant = await this.isUserInRoom(message.chatRoomId, userId);
-    if (!isParticipant) {
-      return ApiResponseUtil.error('Access denied');
-    }
-
-    const receipts = await this.chatMessageReceiptRepository
-      .createQueryBuilder('receipt')
-      .leftJoin('receipt.user', 'user')
-      .where('receipt.messageId = :messageId', { messageId })
-      .select([
-        'receipt.id',
-        'receipt.userId',
-        'receipt.status',
-        'receipt.deliveredAt',
-        'receipt.readAt',
-        'user.id',
-        'user.username',
-      ])
-      .getMany();
-
-    const deliveryStatus = receipts.map((receipt) => ({
-      userId: receipt.userId,
-      username: receipt.user?.username || 'Unknown',
-      status: receipt.status,
-      deliveredAt: receipt.deliveredAt,
-      readAt: receipt.readAt,
-    }));
-
-    return ApiResponseUtil.success(deliveryStatus);
   }
 }

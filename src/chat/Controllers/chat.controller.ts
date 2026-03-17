@@ -26,6 +26,7 @@ import { CreateChatRoomDto } from '../dto/create-chat-room.dto';
 import { SendMessageDto } from '../dto/send-message.dto';
 import { AddParticipantsDto } from '../dto/add-participants.dto';
 import { PinChatRoomDto } from '../dto/pin-chat-room.dto';
+import { PinMessageDto } from '../dto/pin-message.dto';
 import { RemoveParticipantDto } from '../dto/remove-participant.dto';
 import { ToggleMessageReactionDto } from '../dto/toggle-message-reaction.dto';
 import { UpdateChatRoomNameDto } from '../dto/update-chat-room-name.dto';
@@ -120,6 +121,24 @@ export class ChatController {
     @Request() req,
   ) {
     return this.chatService.setRoomPinned(roomId, req.user.id, dto.pinned);
+  }
+
+  @Post('rooms/:roomId/messages/:messageId/pin')
+  async pinMessage(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Body() dto: PinMessageDto,
+    @Request() req,
+  ) {
+    return this.chatService.setMessagePinned(roomId, messageId, req.user.id, dto.pinned);
+  }
+
+  @Get('rooms/:roomId/pinned-messages')
+  async getPinnedMessages(
+    @Param('roomId', ParseIntPipe) roomId: number,
+    @Request() req,
+  ) {
+    return this.chatService.getPinnedMessages(roomId, req.user.id);
   }
 
   @Patch('rooms/:roomId/name')

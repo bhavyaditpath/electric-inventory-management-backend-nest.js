@@ -232,4 +232,48 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const sockets = this.connectedUsers.get(userId);
     return !!sockets && sockets.size > 0;
   }
+
+  @SubscribeMessage('pinMessage')
+  async handlePinMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomId: number; messageId: number; pinned: boolean },
+  ) {
+    try {
+      const token =
+        client.handshake.auth.token || client.handshake.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return { event: 'error', data: 'Unauthorized' };
+      }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      const isParticipant = await this.chatService.isUserInRoom(data.roomId, userId);
+      if (!isParticipant) {
+        return { event: 'error', data: 'Not a participant of this room' };
+      }
+
+      const result = await this.chatService.setMessagePinned(
+        data.roomId,
+        data.messageId,
+        userId,
+        data.pinned,
+      );
+
+      if (result.success) {
+        // Broadcast to room
+        this.server.to(`room_${data.roomId}`).emit('messagePinned', {
+          messageId: data.messageId,
+          pinned: data.pinned,
+          message: result.data?.message,
+        });
+        return { event: 'messagePinned', data: result.data };
+      }
+
+      return { event: 'error', data: result.message || 'Failed to pin message' };
+    } catch (error) {
+      console.error('Pin message error:', error);
+      return { event: 'error', data: 'Failed to pin message' };
+    }
+  }
 }

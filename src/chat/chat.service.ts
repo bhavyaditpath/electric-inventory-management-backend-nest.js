@@ -6,6 +6,7 @@ import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
+import { ChatMessagePin } from './entities/chat-message-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { ChatMessageReaction } from './entities/chat-message-reaction.entity';
 import { User } from '../user/entities/user.entity';
@@ -33,6 +34,8 @@ export class ChatService {
     private chatAttachmentRepository: Repository<ChatAttachment>,
     @InjectRepository(ChatRoomPin)
     private chatRoomPinRepository: Repository<ChatRoomPin>,
+    @InjectRepository(ChatMessagePin)
+    private chatMessagePinRepository: Repository<ChatMessagePin>,
     @InjectRepository(ChatMessageDeletion)
     private chatMessageDeletionRepository: Repository<ChatMessageDeletion>,
     @InjectRepository(ChatMessageReaction)
@@ -394,7 +397,16 @@ export class ChatService {
       .take(limit)
       .getManyAndCount();
 
-    const mappedMessages = messages.reverse().map((m) => this.toMessageDto(m, userId));
+    // Get pinned messages for this user in this room
+    const pins = await this.chatMessagePinRepository.find({
+      where: { chatRoomId: roomId, userId },
+      select: { messageId: true },
+    });
+    const pinnedMessageIds = new Set(pins.map((p) => p.messageId));
+
+    const mappedMessages = messages.reverse().map((m) =>
+      this.toMessageDto(m, userId, pinnedMessageIds.has(m.id)),
+    );
 
     return ApiResponseUtil.success({
       messages: mappedMessages,
@@ -1168,7 +1180,7 @@ export class ChatService {
     return { ...room, name: displayName };
   }
 
-  private toMessageDto(message: ChatMessage, currentUserId?: number) {
+  private toMessageDto(message: ChatMessage, currentUserId?: number, isPinned?: boolean) {
     const reactionsMap = new Map<string, Set<number>>();
     for (const reaction of message.reactions || []) {
       const users = reactionsMap.get(reaction.emoji) || new Set<number>();
@@ -1232,9 +1244,10 @@ export class ChatService {
       deliveredAt: message.deliveredAt || null,
       isRead: !!message.isRead,
       readAt: message.readAt || null,
-      createdAt: message.createdAt,
+      createdAt: message.updatedAt,
       updatedAt: message.updatedAt,
       isRemoved: message.isRemoved,
+      isPinned: isPinned || false,
       replyTo: message.replyToMessage
         ? {
           id: message.replyToMessage.id,
@@ -1590,5 +1603,83 @@ export class ChatService {
       select: { id: true },
     });
     return !!pin;
+  }
+
+  async setMessagePinned(
+    roomId: number,
+    messageId: number,
+    userId: number,
+    pinned: boolean,
+  ): Promise<ApiResponse> {
+    const isParticipant = await this.isUserInRoom(roomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const message = await this.chatMessageRepository.findOne({
+      where: { id: messageId, chatRoomId: roomId, isRemoved: false },
+      select: { id: true, chatRoomId: true },
+    });
+    if (!message) {
+      return ApiResponseUtil.error('Message not found');
+    }
+
+    const existing = await this.chatMessagePinRepository.findOne({
+      where: { chatRoomId: roomId, userId, messageId },
+    });
+
+    if (pinned) {
+      if (!existing) {
+        const pin = this.chatMessagePinRepository.create({
+          chatRoomId: roomId,
+          messageId,
+          userId,
+        });
+        await this.chatMessagePinRepository.save(pin);
+      }
+    } else if (existing) {
+      await this.chatMessagePinRepository.delete({ chatRoomId: roomId, userId, messageId });
+    }
+
+    const mappedMessage = await this.getMappedMessageById(messageId, userId, {
+      includeIsRemoved: false,
+      excludeDeletedForUser: true,
+    });
+
+    // Emit event to room
+    this.chatGateway.sendToRoom(roomId, 'messagePinned', {
+      messageId,
+      pinned,
+      message: mappedMessage,
+    });
+
+    return ApiResponseUtil.success({ pinned, message: mappedMessage }, 'Message pin updated');
+  }
+
+  async getPinnedMessages(roomId: number, userId: number): Promise<ApiResponse> {
+    const isParticipant = await this.isUserInRoom(roomId, userId);
+    if (!isParticipant) {
+      return ApiResponseUtil.error('Access denied');
+    }
+
+    const pins = await this.chatMessagePinRepository.find({
+      where: { chatRoomId: roomId, userId },
+      relations: ['message'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const pinnedMessages = await Promise.all(
+      pins.map(async (pin) => {
+        const mappedMessage = await this.getMappedMessageById(pin.messageId, userId, {
+          includeIsRemoved: false,
+          excludeDeletedForUser: true,
+        });
+        return mappedMessage;
+      }),
+    );
+
+    const filteredMessages = pinnedMessages.filter((m) => m !== null);
+
+    return ApiResponseUtil.success(filteredMessages);
   }
 }

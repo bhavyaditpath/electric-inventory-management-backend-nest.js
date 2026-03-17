@@ -6,6 +6,7 @@ import { ChatAttachment } from './entities/chat-attachment.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { User } from '../user/entities/user.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
+import { ChatMessagePin } from './entities/chat-message-pin.entity';
 import { ChatMessageDeletion } from './entities/chat-message-deletion.entity';
 import { ChatMessageReaction } from './entities/chat-message-reaction.entity';
 import { ChatService } from './chat.service';
@@ -28,6 +29,7 @@ import { CallRecordingController } from './Controllers/call-recording/call-recor
       ChatMessageReaction,
       ChatRoomParticipant,
       ChatRoomPin,
+      ChatMessagePin,
       User,
       CallLog,
     ]),

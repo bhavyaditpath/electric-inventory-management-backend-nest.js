@@ -1,6 +1,7 @@
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { ChatMessage } from './chat-message.entity';
 import { BaseEntityClass } from '../../shared/base.entity';
+import { ChatAttachmentView } from './chat-attachment-view.entity';
 
 @Entity('chat_attachments')
 export class ChatAttachment extends BaseEntityClass {
@@ -22,4 +23,10 @@ export class ChatAttachment extends BaseEntityClass {
 
   @Column({ type: 'int' })
   size: number;
+
+  @Column({ type: 'boolean', default: false })
+  isViewOnce: boolean;
+
+  @OneToMany(() => ChatAttachmentView, (view) => view.attachment)
+  views: ChatAttachmentView[];
 }

@@ -4,6 +4,7 @@ import { Repository, In, SelectQueryBuilder } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
+import { ChatAttachmentView } from './entities/chat-attachment-view.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
 import { ChatMessagePin } from './entities/chat-message-pin.entity';
@@ -32,6 +33,8 @@ export class ChatService {
     private chatMessageRepository: Repository<ChatMessage>,
     @InjectRepository(ChatAttachment)
     private chatAttachmentRepository: Repository<ChatAttachment>,
+    @InjectRepository(ChatAttachmentView)
+    private chatAttachmentViewRepository: Repository<ChatAttachmentView>,
     @InjectRepository(ChatRoomPin)
     private chatRoomPinRepository: Repository<ChatRoomPin>,
     @InjectRepository(ChatMessagePin)
@@ -350,6 +353,7 @@ export class ChatService {
           mimeType: file.mimetype,
           fileName: file.originalname,
           size: file.size,
+          isViewOnce: dto.viewOnce === true,
         }),
       );
       await this.chatAttachmentRepository.save(attachmentEntities);
@@ -1583,6 +1587,7 @@ export class ChatService {
         'attachment.mimeType',
         'attachment.fileName',
         'attachment.size',
+        'attachment.isViewOnce',
         'message.id',
         'message.isRemoved',
         'room.id',
@@ -1595,6 +1600,74 @@ export class ChatService {
       .andWhere('room.isRemoved = :roomRemoved', { roomRemoved: false })
       .andWhere('participant.id IS NOT NULL')
       .getOne();
+  }
+
+  async checkViewOnceAttachmentViewed(
+    attachmentId: number,
+    userId: number,
+  ): Promise<boolean> {
+    const view = await this.chatAttachmentViewRepository.findOne({
+      where: { attachmentId, userId },
+    });
+    return !!view;
+  }
+
+  async recordViewOnceAttachmentView(
+    attachmentId: number,
+    userId: number,
+  ): Promise<ApiResponse> {
+    const attachment = await this.chatAttachmentRepository.findOne({
+      where: { id: attachmentId },
+    });
+
+    if (!attachment) {
+      return ApiResponseUtil.error('Attachment not found');
+    }
+
+    if (!attachment.isViewOnce) {
+      return ApiResponseUtil.error('Attachment is not a view-once attachment');
+    }
+
+    const existingView = await this.chatAttachmentViewRepository.findOne({
+      where: { attachmentId, userId },
+    });
+
+    if (existingView) {
+      return ApiResponseUtil.error('Already viewed');
+    }
+
+    const view = this.chatAttachmentViewRepository.create({
+      attachmentId,
+      userId,
+    });
+    await this.chatAttachmentViewRepository.save(view);
+
+    return ApiResponseUtil.success({ attachmentId, userId }, 'View recorded');
+  }
+
+  async getViewOnceAttachmentAccess(
+    attachmentId: number,
+    userId: number,
+  ): Promise<{ canView: boolean; isViewed: boolean; error?: string }> {
+    const attachment = await this.getAttachmentForDownload(attachmentId, userId);
+
+    if (!attachment) {
+      return { canView: false, isViewed: false, error: 'Attachment not found or access denied' };
+    }
+
+    if (!attachment.isViewOnce) {
+      return { canView: true, isViewed: false };
+    }
+
+    const existingView = await this.chatAttachmentViewRepository.findOne({
+      where: { attachmentId, userId },
+    });
+
+    if (existingView) {
+      return { canView: false, isViewed: true, error: 'View-once attachment has already been viewed' };
+    }
+
+    return { canView: true, isViewed: false };
   }
 
   private async isRoomPinned(roomId: number, userId: number): Promise<boolean> {

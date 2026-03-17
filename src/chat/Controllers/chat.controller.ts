@@ -201,6 +201,17 @@ export class ChatController {
       throw new NotFoundException('Attachment not found');
     }
 
+    // Check for view-once access
+    if (attachment.isViewOnce) {
+      const access = await this.chatService.getViewOnceAttachmentAccess(
+        attachmentId,
+        req.user.id,
+      );
+      if (!access.canView) {
+        throw new NotFoundException(access.error || 'View-once attachment already viewed');
+      }
+    }
+
     const storedName = basename(attachment.url);
     const filePath = join(process.cwd(), 'uploads', 'chat', storedName);
     if (!existsSync(filePath)) {
@@ -214,6 +225,39 @@ export class ChatController {
     );
 
     return new StreamableFile(createReadStream(filePath));
+  }
+
+  @Post('attachments/:attachmentId/view-once/view')
+  async viewViewOnceAttachment(
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+    @Request() req,
+  ) {
+    return this.chatService.recordViewOnceAttachmentView(attachmentId, req.user.id);
+  }
+
+  @Get('attachments/:attachmentId/view-once/status')
+  async getViewOnceAttachmentStatus(
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+    @Request() req,
+  ) {
+    const attachment = await this.chatService.getAttachmentForDownload(
+      attachmentId,
+      req.user.id,
+    );
+    if (!attachment) {
+      throw new NotFoundException('Attachment not found');
+    }
+
+    if (!attachment.isViewOnce) {
+      return ApiResponseUtil.success({ isViewOnce: false, isViewed: false });
+    }
+
+    const isViewed = await this.chatService.checkViewOnceAttachmentViewed(
+      attachmentId,
+      req.user.id,
+    );
+
+    return ApiResponseUtil.success({ isViewOnce: true, isViewed });
   }
 
   @Delete('messages/:messageId')

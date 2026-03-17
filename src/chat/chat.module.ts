@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { ChatMessage } from './entities/chat-message.entity';
 import { ChatAttachment } from './entities/chat-attachment.entity';
+import { ChatAttachmentView } from './entities/chat-attachment-view.entity';
 import { ChatRoomParticipant } from './entities/chat-room-participant.entity';
 import { User } from '../user/entities/user.entity';
 import { ChatRoomPin } from './entities/chat-room-pin.entity';
@@ -25,6 +26,7 @@ import { CallRecordingController } from './Controllers/call-recording/call-recor
       ChatRoom,
       ChatMessage,
       ChatAttachment,
+      ChatAttachmentView,
       ChatMessageDeletion,
       ChatMessageReaction,
       ChatRoomParticipant,

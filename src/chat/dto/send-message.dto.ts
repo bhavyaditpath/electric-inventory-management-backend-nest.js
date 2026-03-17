@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsNotEmpty, IsEnum, IsJSON, Validate, ValidateIf } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsNotEmpty, IsEnum, IsJSON, Validate, ValidateIf, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ChatLanguage, ChatMessageKind } from '../enums/chat-message-format.enum';
 import { MessageLanguageByKindValidator } from '../validators/message-language-by-kind.validator';
@@ -28,4 +28,9 @@ export class SendMessageDto {
   @IsEnum(ChatLanguage)
   @Validate(MessageLanguageByKindValidator)
   language?: ChatLanguage;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  viewOnce?: boolean;
 }

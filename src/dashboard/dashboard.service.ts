@@ -8,6 +8,8 @@ import { StockAlert } from '../alert/entities/alert.entity';
 import { User } from '../user/entities/user.entity';
 import { RequestStatus } from '../shared/enums/request-status.enum';
 import { AlertStatus } from '../shared/enums/alert-status.enum';
+import { PurchaseTrendPeriod, PurchaseTrendQueryDto } from './dto/purchase-trend-query.dto';
+import { UserRole } from '../shared/enums/role.enum';
 
 @Injectable()
 export class DashboardService {
@@ -22,7 +24,7 @@ export class DashboardService {
     private alertRepository: Repository<StockAlert>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-  ) {}
+  ) { }
 
   // Admin Dashboard APIs
   async getTotalInventory(user: User): Promise<number> {
@@ -150,5 +152,82 @@ export class DashboardService {
 
     const result = await qb.getRawOne();
     return parseFloat(result.total) || 0;
+  }
+
+  async getPurchaseTrend(user: User, query: PurchaseTrendQueryDto) {
+    const period = query.period ?? PurchaseTrendPeriod.MONTH;
+    const bucketExpr = this.getBucketExpression(period);
+    const branchId = user.role === UserRole.ADMIN ? query.branchId : user.branchId;
+
+    const qb = this.purchaseRepository
+      .createQueryBuilder('purchase')
+      .select(`${bucketExpr}`, 'bucket')
+      .addSelect('SUM(purchase.quantity)', 'totalQuantity')
+      .addSelect('SUM(purchase.totalPrice)', 'totalValue')
+      .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
+
+    if (branchId) {
+      qb.andWhere('purchase.branchId = :branchId', { branchId });
+    }
+
+    if (query.productName?.trim()) {
+      qb.andWhere('LOWER(purchase.productName) = LOWER(:productName)', {
+        productName: query.productName.trim(),
+      });
+    }
+
+    qb.groupBy('bucket').orderBy('bucket', 'ASC');
+
+    const rows = await qb.getRawMany<{
+      bucket: string;
+      totalQuantity: string;
+      totalValue: string;
+    }>();
+
+    const labels = rows.map((row) => this.formatBucketLabel(row.bucket, period));
+    const quantityData = rows.map((row) => Number(row.totalQuantity || 0));
+    const valueData = rows.map((row) => Number(row.totalValue || 0));
+
+    return {
+      period,
+      filters: {
+        branchId: branchId ?? null,
+        productName: query.productName?.trim() || null,
+      },
+      labels,
+      datasets: [
+        {
+          key: 'quantity',
+          label: 'Purchased Quantity',
+          data: quantityData,
+        },
+        {
+          key: 'value',
+          label: 'Purchase Value',
+          data: valueData,
+        },
+      ],
+      totals: {
+        totalQuantity: quantityData.reduce((sum, val) => sum + val, 0),
+        totalValue: valueData.reduce((sum, val) => sum + val, 0),
+      },
+    };
+  }
+
+  private getBucketExpression(period: PurchaseTrendPeriod): string {
+    if (period === PurchaseTrendPeriod.WEEK) return `DATE_TRUNC('day', purchase.createdAt)`;
+    if (period === PurchaseTrendPeriod.YEAR) return `DATE_TRUNC('month', purchase.createdAt)`;
+    return `DATE_TRUNC('week', purchase.createdAt)`;
+  }
+
+  private formatBucketLabel(bucket: string, period: PurchaseTrendPeriod): string {
+    const date = new Date(bucket);
+    if (period === PurchaseTrendPeriod.WEEK) {
+      return date.toISOString().split('T')[0];
+    }
+    if (period === PurchaseTrendPeriod.YEAR) {
+      return date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    }
+    return date.toISOString().split('T')[0];
   }
 }

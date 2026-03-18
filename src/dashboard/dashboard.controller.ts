@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { StockAlert } from '../alert/entities/alert.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -6,6 +6,7 @@ import { RolesGuard, BranchAccessGuard } from '../shared/guards';
 import { Roles, CurrentUser } from '../shared/decorators';
 import { UserRole } from '../shared/enums/role.enum';
 import { User } from '../user/entities/user.entity';
+import { PurchaseTrendQueryDto } from './dto/purchase-trend-query.dto';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -73,5 +74,11 @@ export class DashboardController {
   async getTodaysbuys(@CurrentUser() user: User): Promise<{ count: number }> {
     const count = await this.dashboardService.getTodaysbuys(user);
     return { count };
+  }
+
+  @Get('purchase-trend')
+  @Roles(UserRole.ADMIN, UserRole.BRANCH)
+  async getPurchaseTrend(@CurrentUser() user: User, @Query() query: PurchaseTrendQueryDto) {
+    return this.dashboardService.getPurchaseTrend(user, query);
   }
 }

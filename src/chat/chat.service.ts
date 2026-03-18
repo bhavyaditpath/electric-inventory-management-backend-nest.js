@@ -432,40 +432,71 @@ export class ChatService {
       );
     }
 
-    const sourceMessage = await this.chatMessageRepository
-      .createQueryBuilder('message')
-      .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
-      .leftJoin('message.sender', 'sender')
-      .leftJoinAndSelect('message.attachments', 'attachments')
-      .select([
-        'message.id',
-        'message.chatRoomId',
-        'message.senderId',
-        'message.content',
-        'message.kind',
-        'message.language',
-        'message.forwardedOriginalKind',
-        'message.forwardedOriginalLanguage',
-        'message.createdAt',
-        'sender.username',
-        'attachments.id',
-        'attachments.url',
-        'attachments.mimeType',
-        'attachments.fileName',
-        'attachments.size',
-      ])
+    const baseForwardSourceQuery = () =>
+      this.chatMessageRepository
+        .createQueryBuilder('message')
+        .leftJoin('message.deletions', 'deletion', 'deletion.userId = :userId', { userId })
+        .leftJoin('message.sender', 'sender')
+        .leftJoinAndSelect('message.attachments', 'attachments')
+        .select([
+          'message.id',
+          'message.chatRoomId',
+          'message.senderId',
+          'message.forwardedFromMessageId',
+          'message.content',
+          'message.kind',
+          'message.language',
+          'message.forwardedOriginalSenderId',
+          'message.forwardedOriginalSenderName',
+          'message.forwardedOriginalCreatedAt',
+          'message.forwardedOriginalContent',
+          'message.forwardedOriginalKind',
+          'message.forwardedOriginalLanguage',
+          'message.createdAt',
+          'sender.username',
+          'attachments.id',
+          'attachments.url',
+          'attachments.mimeType',
+          'attachments.fileName',
+          'attachments.size',
+        ]);
+
+    let sourceMessage = await baseForwardSourceQuery()
       .where('message.id = :messageId', { messageId: dto.sourceMessageId })
       .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
       .andWhere('deletion.id IS NULL')
       .getOne();
 
-    if (!sourceMessage) {
-      return ApiResponseUtil.error('Source message not found');
-    }
+    const canViewSource = sourceMessage
+      ? await this.isUserInRoom(sourceMessage.chatRoomId, userId)
+      : false;
 
-    const canViewSource = await this.isUserInRoom(sourceMessage.chatRoomId, userId);
-    if (!canViewSource) {
-      return ApiResponseUtil.error('Access denied');
+    // WhatsApp-like chain forwarding: if the request references an older/original message
+    // the user cannot access directly, allow forwarding from an accessible forwarded copy.
+    if (!sourceMessage || !canViewSource) {
+      const accessibleForwardedCopy = await baseForwardSourceQuery()
+        .innerJoin(
+          ChatRoomParticipant,
+          'participant',
+          'participant.chatRoomId = message.chatRoomId AND participant.userId = :userId AND participant.isRemoved = :participantIsRemoved',
+          { userId, participantIsRemoved: false },
+        )
+        .where('message.forwardedFromMessageId = :messageId', {
+          messageId: dto.sourceMessageId,
+        })
+        .andWhere('message.isRemoved = :isRemoved', { isRemoved: false })
+        .andWhere('deletion.id IS NULL')
+        .orderBy('message.createdAt', 'DESC')
+        .getOne();
+
+      if (!accessibleForwardedCopy) {
+        if (!sourceMessage) {
+          return ApiResponseUtil.error('Source message not found');
+        }
+        return ApiResponseUtil.error('Access denied');
+      }
+
+      sourceMessage = accessibleForwardedCopy;
     }
 
     const targetRooms = await this.chatRoomRepository.find({
@@ -492,7 +523,11 @@ export class ChatService {
     }
     const forwardedMessageMeta: Array<{ id: number; roomId: number }> = [];
     const sourceHasAttachments = (sourceMessage.attachments || []).length > 0;
-    const sourceContent = (sourceMessage.content || '').trim();
+    const sourceContent = (
+      sourceMessage.forwardedOriginalContent ||
+      sourceMessage.content ||
+      ''
+    ).trim();
     const sourceKind = this.resolveMessageKind(
       (sourceMessage.forwardedOriginalKind as ChatMessageKind | undefined) ??
       (sourceMessage.kind as ChatMessageKind | undefined),
@@ -502,6 +537,12 @@ export class ChatService {
       (sourceMessage.forwardedOriginalLanguage as ChatLanguage | undefined) ??
       (sourceMessage.language as ChatLanguage | undefined),
     );
+    const sourceOriginalSenderId = sourceMessage.forwardedOriginalSenderId || sourceMessage.senderId;
+    const sourceOriginalSenderName =
+      sourceMessage.forwardedOriginalSenderName || sourceMessage.sender?.username || null;
+    const sourceOriginalCreatedAt =
+      sourceMessage.forwardedOriginalCreatedAt || sourceMessage.createdAt;
+
     if (!sourceContent && !sourceHasAttachments) {
       return ApiResponseUtil.error('Nothing to forward');
     }
@@ -528,9 +569,9 @@ export class ChatService {
             language: forwardedLanguage,
             isForwarded: true,
             forwardedFromMessageId: sourceMessage.id,
-            forwardedOriginalSenderId: sourceMessage.senderId,
-            forwardedOriginalSenderName: sourceMessage.sender?.username || null,
-            forwardedOriginalCreatedAt: sourceMessage.createdAt,
+            forwardedOriginalSenderId: sourceOriginalSenderId,
+            forwardedOriginalSenderName: sourceOriginalSenderName,
+            forwardedOriginalCreatedAt: sourceOriginalCreatedAt,
             forwardedOriginalContent: sourceContent || null,
             forwardedOriginalKind: sourceKind,
             forwardedOriginalLanguage: sourceLanguage,

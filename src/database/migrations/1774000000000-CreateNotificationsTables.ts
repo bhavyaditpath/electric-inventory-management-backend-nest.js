@@ -51,9 +51,13 @@ export class CreateNotificationsTables1774000000000 implements MigrationInterfac
         )`);
 
         await queryRunner.query(`DO $$ BEGIN
-            ALTER TABLE "user_notifications" ADD CONSTRAINT "UQ_1684fc4d342234900b518bcab1c" UNIQUE ("userId", "notificationId");
-        EXCEPTION
-            WHEN duplicate_object THEN null;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'UQ_1684fc4d342234900b518bcab1c'
+            ) THEN
+                ALTER TABLE "user_notifications" ADD CONSTRAINT "UQ_1684fc4d342234900b518bcab1c" UNIQUE ("userId", "notificationId");
+            END IF;
         END $$;`);
 
         await queryRunner.query(`DO $$ BEGIN

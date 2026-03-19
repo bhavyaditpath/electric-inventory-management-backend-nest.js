@@ -8,7 +8,7 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const seederService = app.get(SeederService);
-  // await seederService.seed();
+  await seederService.seed();
   app.enableCors();
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
   app.useGlobalPipes(

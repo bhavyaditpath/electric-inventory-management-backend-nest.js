@@ -7,8 +7,15 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor(private configService: ConfigService) {
+    const host = this.configService.get<string>('EMAIL_HOST');
+
+    if (!host) {
+      console.log("Email disabled");
+      return;
+    }
+
     this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('EMAIL_HOST'),
+      host,
       port: 465,
       secure: true,
       auth: {

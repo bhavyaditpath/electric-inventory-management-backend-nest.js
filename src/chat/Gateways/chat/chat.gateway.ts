@@ -14,10 +14,11 @@ import { ChatService } from '../../chat.service';
 import { ChatLanguage, ChatMessageKind } from '../../enums/chat-message-format.enum';
 
 @WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
-  namespace: '/chat',
+   origin: [
+      'http://localhost:3005',
+      'https://electric-inventory-management-frontend.vercel.app', // <-- add your frontend
+    ],
+  namespace: 'chat',
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

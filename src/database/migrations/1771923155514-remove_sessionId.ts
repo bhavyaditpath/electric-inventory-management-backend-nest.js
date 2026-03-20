@@ -4,11 +4,11 @@ export class RemoveSessionId1771923155514 implements MigrationInterface {
     name = 'RemoveSessionId1771923155514'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "call_logs" DROP COLUMN "sessionId"`);
+        await queryRunner.query(`ALTER TABLE "call_logs" DROP COLUMN IF EXISTS "sessionId"`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "call_logs" ADD "sessionId" character varying(64)`);
+        await queryRunner.query(`ALTER TABLE "call_logs" ADD COLUMN IF NOT EXISTS "sessionId" character varying(64)`);
     }
 
 }

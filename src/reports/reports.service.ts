@@ -443,7 +443,7 @@ export class ReportsService {
       filename: fileName,
       content: buffer,
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
+    }).catch(() => {});
   }
 
   async processScheduledReports(userId: number): Promise<string> {

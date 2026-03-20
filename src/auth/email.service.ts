@@ -4,7 +4,7 @@ import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter | null = null;
 
   constructor(private configService: ConfigService) {
     const host = this.configService.get<string>('EMAIL_HOST');
@@ -36,6 +36,10 @@ export class EmailService {
   }
 
   async sendResetPasswordEmail(to: string, token: string): Promise<void> {
+    if (!this.transporter) {
+      console.log("Email skipped (no transporter)");
+      return;
+    }
     const frontendUrl = this.configService.get<string>('FRONTEND_URL');
     const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
 
@@ -65,6 +69,11 @@ export class EmailService {
       contentType: string;
     }
   ): Promise<void> {
+    if (!this.transporter) {
+      console.log("Email skipped (no transporter)");
+      return;
+    }
+
     const mailOptions: any = {
       from: this.configService.get<string>('EMAIL_FROM') || this.configService.get<string>('EMAIL_USER'),
       to,

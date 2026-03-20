@@ -81,7 +81,7 @@ export class AuthService {
 
     const token = this.jwtService.sign(payload, { expiresIn: '15m' });
 
-    await this.emailService.sendResetPasswordEmail(user.username, token);
+    await this.emailService.sendResetPasswordEmail(user.username, token)  .catch(err => console.error("Email failed:", err.message));
 
     return ApiResponseUtil.success(null, "Reset email sent successfully");
   }

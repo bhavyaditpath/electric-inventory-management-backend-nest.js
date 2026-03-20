@@ -18,8 +18,11 @@ import { ChatRoom } from 'src/chat/entities/chat-room.entity';
 import { ChatRoomParticipant } from 'src/chat/entities/chat-room-participant.entity';
 
 @WebSocketGateway({
-  cors: { origin: '*' },
-  namespace: '/chat',
+   origin: [
+      'http://localhost:3005',
+      'https://electric-inventory-management-frontend.vercel.app', // <-- add your frontend
+    ],
+  namespace: 'chat',
 })
 export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   @WebSocketServer()

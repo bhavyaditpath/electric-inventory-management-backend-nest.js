@@ -18,11 +18,13 @@ import { ChatRoom } from 'src/chat/entities/chat-room.entity';
 import { ChatRoomParticipant } from 'src/chat/entities/chat-room-participant.entity';
 
 @WebSocketGateway({
-   origin: [
+  cors: {
+    origin: [
       'http://localhost:3005',
-      'https://electric-inventory-management-frontend.vercel.app', // <-- add your frontend
+      'https://electric-inventory-management-front-silk.vercel.app',
     ],
-  namespace: 'chat',
+    credentials: true,
+  },
 })
 export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   @WebSocketServer()
@@ -151,9 +153,20 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   }
 
   handleConnection(client: Socket) {
-    const userId = this.getUserId(client);
-    if (!userId) return;
-    void client.join(`user_${userId}`);
+    try {
+      const token =
+        client.handshake.auth.token ||
+        client.handshake.headers.authorization?.split(' ')[1];
+
+      console.log("Socket token:", token);
+
+      const payload = this.jwtService.verify(token);
+      console.log("Socket user:", payload);
+
+    } catch (err) {
+      console.error("❌ Socket auth failed:", err.message);
+      client.disconnect();
+    }
   }
 
   // ================= CALL USER =================

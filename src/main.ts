@@ -11,14 +11,12 @@ async function bootstrap() {
   // await seederService.seed();
 
   app.enableCors({
-    cors: {
-      origin: [
-        'http://localhost:3005',
-        'https://electric-inventory-management-front-ten.vercel.app',
-      ],
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      credentials: true,
-    },
+    origin: [
+      'http://localhost:3005',
+      'https://electric-inventory-management-front-ten.vercel.app',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true,
   });
 
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));

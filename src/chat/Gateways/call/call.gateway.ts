@@ -21,7 +21,7 @@ import { ChatRoomParticipant } from 'src/chat/entities/chat-room-participant.ent
   cors: {
     origin: [
       'http://localhost:3005',
-      'https://electric-inventory-management-frontend.vercel.app',
+      'https://electric-inventory-management-front-silk.vercel.app',
     ],
     credentials: true,
   },

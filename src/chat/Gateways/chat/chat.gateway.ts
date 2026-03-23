@@ -17,7 +17,7 @@ import { ChatLanguage, ChatMessageKind } from '../../enums/chat-message-format.e
   cors: {
     origin: [
       'http://localhost:3005',
-      'https://electric-inventory-management-frontend.vercel.app',
+      'https://electric-inventory-management-front-silk.vercel.app',
     ],
   },
   namespace: 'chat',

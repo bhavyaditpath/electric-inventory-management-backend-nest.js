@@ -19,10 +19,7 @@ import { ChatRoomParticipant } from 'src/chat/entities/chat-room-participant.ent
 
 @WebSocketGateway({
   cors: {
-    origin: [
-      'http://localhost:3005',
-      'https://electric-inventory-management-front-silk.vercel.app',
-    ],
+    origin: '*',
     credentials: true,
   },
 })

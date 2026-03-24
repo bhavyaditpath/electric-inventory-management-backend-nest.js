@@ -12,10 +12,7 @@ async function bootstrap() {
 
   app.enableCors({
     cors: {
-      origin: [
-        'http://localhost:3005',
-        'https://electric-inventory-management-front-silk.vercel.app'
-      ],
+      origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       credentials: true,
     },

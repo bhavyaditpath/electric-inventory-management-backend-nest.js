@@ -15,10 +15,7 @@ import { ChatLanguage, ChatMessageKind } from '../../enums/chat-message-format.e
 
 @WebSocketGateway({
   cors: {
-    origin: [
-      'http://localhost:3005',
-      'https://electric-inventory-management-front-silk.vercel.app',
-    ],
+     origin: '*',
   },
   namespace: 'chat',
 })

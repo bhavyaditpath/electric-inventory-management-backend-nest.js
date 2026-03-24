@@ -19,12 +19,9 @@ import { ChatRoomParticipant } from 'src/chat/entities/chat-room-participant.ent
 
 @WebSocketGateway({
   cors: {
-    origin: [
-      'http://localhost:3005',
-      'https://electric-inventory-management-front-silk.vercel.app',
-    ],
-    credentials: true,
+    origin: '*',
   },
+   namespace: 'chat'
 })
 export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
   @WebSocketServer()
@@ -158,10 +155,10 @@ export class CallGateway implements OnGatewayDisconnect, OnGatewayConnection {
         client.handshake.auth.token ||
         client.handshake.headers.authorization?.split(' ')[1];
 
-      console.log("Socket token:", token);
-
       const payload = this.jwtService.verify(token);
-      console.log("Socket user:", payload);
+      const userId = payload.sub;
+
+      client.join(`user_${userId}`);
 
     } catch (err) {
       console.error("❌ Socket auth failed:", err.message);

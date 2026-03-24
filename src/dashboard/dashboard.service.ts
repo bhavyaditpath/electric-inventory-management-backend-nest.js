@@ -10,6 +10,8 @@ import { RequestStatus } from '../shared/enums/request-status.enum';
 import { AlertStatus } from '../shared/enums/alert-status.enum';
 import { PurchaseTrendPeriod, PurchaseTrendQueryDto } from './dto/purchase-trend-query.dto';
 import { UserRole } from '../shared/enums/role.enum';
+import { SalesPurchaseTrendQueryDto } from './dto/sales-purchase-trend-query.dto';
+import { StockHealthQueryDto } from './dto/stock-health-query.dto';
 
 @Injectable()
 export class DashboardService {
@@ -229,5 +231,158 @@ export class DashboardService {
       return date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
     }
     return date.toISOString().split('T')[0];
+  }
+
+  async getSalesVsPurchaseTrend(user: User, query: SalesPurchaseTrendQueryDto) {
+    const period = query.period ?? PurchaseTrendPeriod.MONTH;
+    const bucketExpr = this.getBucketExpression(period);
+    const branchId = user.role === UserRole.ADMIN ? query.branchId : user.branchId;
+    const productName = query.productName?.trim();
+
+    const purchaseQb = this.purchaseRepository
+      .createQueryBuilder('purchase')
+      .select(`${bucketExpr}`, 'bucket')
+      .addSelect('SUM(purchase.totalPrice)', 'purchaseValue')
+      .where('purchase.isRemoved = :isRemoved', { isRemoved: false });
+
+    if (branchId) {
+      purchaseQb.andWhere('purchase.branchId = :branchId', { branchId });
+    }
+    if (productName) {
+      purchaseQb.andWhere('LOWER(purchase.productName) = LOWER(:productName)', { productName });
+    }
+
+    purchaseQb.groupBy('bucket').orderBy('bucket', 'ASC');
+
+    const salesQb = this.requestRepository
+      .createQueryBuilder('request')
+      .leftJoin('request.purchase', 'purchase')
+      .select(`DATE_TRUNC('${period === PurchaseTrendPeriod.YEAR ? 'month' : period === PurchaseTrendPeriod.WEEK ? 'day' : 'week'}', request.createdAt)`, 'bucket')
+      .addSelect('SUM(request.quantityRequested * purchase.pricePerUnit)', 'salesValue')
+      .where('request.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('request.status = :status', { status: RequestStatus.DELIVERED })
+      .andWhere('purchase.isRemoved = :purchaseRemoved', { purchaseRemoved: false });
+
+    if (branchId) {
+      salesQb.andWhere('purchase.branchId = :branchId', { branchId });
+    }
+    if (productName) {
+      salesQb.andWhere('LOWER(purchase.productName) = LOWER(:productName)', { productName });
+    }
+
+    salesQb.groupBy('bucket').orderBy('bucket', 'ASC');
+
+    const [purchaseRows, salesRows] = await Promise.all([
+      purchaseQb.getRawMany<{ bucket: string; purchaseValue: string }>(),
+      salesQb.getRawMany<{ bucket: string; salesValue: string }>(),
+    ]);
+
+    const purchaseMap = new Map<string, number>();
+    for (const row of purchaseRows) {
+      purchaseMap.set(row.bucket, Number(row.purchaseValue || 0));
+    }
+
+    const salesMap = new Map<string, number>();
+    for (const row of salesRows) {
+      salesMap.set(row.bucket, Number(row.salesValue || 0));
+    }
+
+    const allBuckets = Array.from(new Set([...purchaseMap.keys(), ...salesMap.keys()])).sort();
+    const labels = allBuckets.map((bucket) => this.formatBucketLabel(bucket, period));
+    const purchaseData = allBuckets.map((bucket) => purchaseMap.get(bucket) ?? 0);
+    const salesData = allBuckets.map((bucket) => salesMap.get(bucket) ?? 0);
+
+    return {
+      period,
+      filters: {
+        branchId: branchId ?? null,
+        productName: productName || null,
+      },
+      labels,
+      datasets: [
+        {
+          key: 'purchaseValue',
+          label: 'Purchase Value',
+          data: purchaseData,
+        },
+        {
+          key: 'salesValue',
+          label: 'Sales Value',
+          data: salesData,
+        },
+      ],
+      totals: {
+        totalPurchaseValue: purchaseData.reduce((sum, val) => sum + val, 0),
+        totalSalesValue: salesData.reduce((sum, val) => sum + val, 0),
+      },
+    };
+  }
+
+  async getStockHealthDistribution(user: User, query: StockHealthQueryDto) {
+    const branchId = user.role === UserRole.ADMIN ? query.branchId : user.branchId;
+
+    const qb = this.purchaseRepository
+      .createQueryBuilder('purchase')
+      .leftJoin('requests', 'req', 'req.purchaseId = purchase.id AND req.isRemoved = false')
+      .where('purchase.isRemoved = :isRemoved', { isRemoved: false })
+      .andWhere('(req.id IS NULL OR req.status = :delivered)', {
+        delivered: RequestStatus.DELIVERED,
+      });
+
+    if (branchId) {
+      qb.andWhere('purchase.branchId = :branchId', { branchId });
+    }
+
+    if (query.search?.trim()) {
+      qb.andWhere('(LOWER(purchase.productName) LIKE :search OR LOWER(purchase.brand) LIKE :search)', {
+        search: `%${query.search.trim().toLowerCase()}%`,
+      });
+    }
+
+    const rows = await qb.getMany();
+    const inventoryMap = new Map<string, { currentQuantity: number; lowStockThreshold: number }>();
+
+    for (const row of rows) {
+      const key = `${row.productName}-${row.brand}-${row.branchId}`;
+      if (!inventoryMap.has(key)) {
+        inventoryMap.set(key, {
+          currentQuantity: 0,
+          lowStockThreshold: Number(row.lowStockThreshold) || 0,
+        });
+      }
+      const item = inventoryMap.get(key)!;
+      item.currentQuantity += Number(row.quantity);
+    }
+
+    let low = 0;
+    let warning = 0;
+    let good = 0;
+
+    for (const item of inventoryMap.values()) {
+      if (item.currentQuantity <= item.lowStockThreshold) {
+        low++;
+      } else if (item.currentQuantity <= item.lowStockThreshold * 2) {
+        warning++;
+      } else {
+        good++;
+      }
+    }
+
+    return {
+      filters: {
+        branchId: branchId ?? null,
+        search: query.search?.trim() || null,
+      },
+      labels: ['Low', 'Warning', 'Good'],
+      datasets: [
+        {
+          key: 'stockHealth',
+          label: 'Stock Health Distribution',
+          data: [low, warning, good],
+        },
+      ],
+      counts: { low, warning, good },
+      totalProducts: low + warning + good,
+    };
   }
 }

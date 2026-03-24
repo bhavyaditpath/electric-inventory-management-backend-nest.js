@@ -26,6 +26,12 @@ export class BranchController {
     return ApiResponseUtil.success(result);
   }
 
+  @Get('all')
+  async findAllWithoutPagination() {
+    const result = await this.branchService.findAllWithoutPagination();
+    return ApiResponseUtil.success(result);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return ApiResponseUtil.success(await this.branchService.findOne(+id));

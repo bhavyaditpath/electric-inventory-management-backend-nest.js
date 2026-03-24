@@ -7,6 +7,8 @@ import { Roles, CurrentUser } from '../shared/decorators';
 import { UserRole } from '../shared/enums/role.enum';
 import { User } from '../user/entities/user.entity';
 import { PurchaseTrendQueryDto } from './dto/purchase-trend-query.dto';
+import { SalesPurchaseTrendQueryDto } from './dto/sales-purchase-trend-query.dto';
+import { StockHealthQueryDto } from './dto/stock-health-query.dto';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -80,5 +82,17 @@ export class DashboardController {
   @Roles(UserRole.ADMIN, UserRole.BRANCH)
   async getPurchaseTrend(@CurrentUser() user: User, @Query() query: PurchaseTrendQueryDto) {
     return this.dashboardService.getPurchaseTrend(user, query);
+  }
+
+  @Get('sales-vs-purchase-trend')
+  @Roles(UserRole.ADMIN, UserRole.BRANCH)
+  async getSalesVsPurchaseTrend(@CurrentUser() user: User, @Query() query: SalesPurchaseTrendQueryDto) {
+    return this.dashboardService.getSalesVsPurchaseTrend(user, query);
+  }
+
+  @Get('stock-health-distribution')
+  @Roles(UserRole.ADMIN, UserRole.BRANCH)
+  async getStockHealthDistribution(@CurrentUser() user: User, @Query() query: StockHealthQueryDto) {
+    return this.dashboardService.getStockHealthDistribution(user, query);
   }
 }

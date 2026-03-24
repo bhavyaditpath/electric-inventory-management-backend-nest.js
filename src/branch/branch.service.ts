@@ -47,6 +47,10 @@ export class BranchService {
     return this.branchRepository.withNoDeletedRecord().findAll();
   }
 
+  async findAllWithoutPagination() {
+    return this.branchRepository.withNoDeletedRecord().findAll();
+  }
+
   private async searchBranchesWithPagination(
     page: number,
     pageSize: number,
